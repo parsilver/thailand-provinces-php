@@ -15,6 +15,8 @@ class DataProviderTest extends PHPUnit_Framework_TestCase {
 
         $this->assertFalse($isArray);
         $this->assertInstanceOf(Illuminate\Support\Collection::class, $items);
+
+        $this->assertCount(10, $items->take(10));
     }
 
 
