@@ -1,7 +1,7 @@
 <?php namespace PA\ProvinceTh;
 
-use PA\ProvinceTh\Providers\Province;
 
+use PA\ProvinceTh\Provider\Province;
 
 class Factory {
 
@@ -9,9 +9,9 @@ class Factory {
     /**
      * Get all province
      *
-     * @return array|\Illuminate\Support\Collection
+     * @return array
      */
-    public function province()
+    public static function province()
     {
         $provider = new Province();
 
