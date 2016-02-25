@@ -1,21 +1,45 @@
 <?php namespace PA\ProvinceTh;
 
-
+use PA\ProvinceTh\Provider\Amphure;
+use PA\ProvinceTh\Provider\District;
+use PA\ProvinceTh\Provider\Geography;
 use PA\ProvinceTh\Provider\Province;
 
 class Factory {
 
 
     /**
-     * Get all province
-     *
-     * @return array
+     * @return Geography
+     */
+    public static function geography()
+    {
+        return new Geography();
+    }
+
+
+    /**
+     * @return Province
      */
     public static function province()
     {
-        $provider = new Province();
+        return new Province();
+    }
 
-        return $provider->make();
+    /**
+     * @return Amphure
+     */
+    public static function amphure()
+    {
+        return new Amphure();
+    }
+
+
+    /**
+     * @return District
+     */
+    public static function district()
+    {
+        return new District();
     }
 
 }

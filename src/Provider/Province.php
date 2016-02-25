@@ -1,22 +1,25 @@
 <?php namespace PA\ProvinceTh\Provider;
 
 
+class Province extends ProviderCollection {
 
-class Province implements DataProvider{
 
-
-    /**
-     * @return string
-     */
-    public function getName()
+    public function geography()
     {
-        return 'จังหวัด';
+        return $this->belongsTo(Geography::class);
     }
+
+
+    public function amphures()
+    {
+        return $this->hasMany(Amphure::class);
+    }
+
 
     /**
      * @return array
      */
-    public function make()
+    public function data()
     {
         return $provinces = [
             ['id' => '1', 'code' => '10', 'name_th' => 'กรุงเทพมหานคร', 'name_en' => 'Bangkok', 'geography_id' => '2'],

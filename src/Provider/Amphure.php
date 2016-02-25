@@ -1,21 +1,25 @@
 <?php namespace PA\ProvinceTh\Provider;
 
 
-class Amphure implements DataProvider {
+class Amphure extends ProviderCollection{
 
-    
-    /**
-     * @return string
-     */
-    public function getName()
+
+    public function province()
     {
-        return 'อำเภอ';
+        return $this->belongsTo(Province::class);
     }
+
+
+    public function district()
+    {
+        return $this->hasMany(District::class);
+    }
+
 
     /**
      * @return array
      */
-    public function make()
+    public function data()
     {
         return $amphures = [
             ['id' => '1', 'code' => '1001', 'name_th' => 'เขตพระนคร', 'name_en' => 'Khet Phra Nakhon','province_id' => '1'],

@@ -1,16 +1,16 @@
 <?php namespace PA\ProvinceTh\Provider;
 
 
-class Geography implements DataProvider {
+class Geography extends ProviderCollection  {
 
 
-    public function getName()
+    public function provinces()
     {
-        return 'ภูมิประเทศ';
+        return $this->hasMany(Province::class);
     }
 
     
-    public function make()
+    public function data()
     {
         return $geographies = [
             ['id' => '1', 'name' => 'ภาคเหนือ'],

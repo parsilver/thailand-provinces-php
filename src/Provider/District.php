@@ -1,15 +1,18 @@
 <?php namespace PA\ProvinceTh\Provider;
 
 
-class District implements DataProvider {
-    
-    
-    public function getName()
+class District extends ProviderCollection {
+
+
+    public function amphure()
     {
-        return 'ตำบล';
+        return $this->belongsTo(Amphure::class);
     }
 
-    public function make()
+
+
+
+    public function data()
     {
         return $districts = [
             ['id' => '100101', 'zip_code' => '10200', 'name_th' => 'พระบรมมหาราชวัง', 'name_en' => 'Phra Borom Maha Ratchawang', 'amphure_id' => '1'],
