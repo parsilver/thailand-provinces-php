@@ -4,6 +4,9 @@
 class District extends ProviderCollection {
 
 
+    /**
+     * @return array
+     */
     public function amphure()
     {
         return $this->belongsTo(Amphure::class);

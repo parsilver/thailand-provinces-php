@@ -4,12 +4,18 @@
 class Province extends ProviderCollection {
 
 
+    /**
+     * @return array
+     */
     public function geography()
     {
         return $this->belongsTo(Geography::class);
     }
 
 
+    /**
+     * @return Amphure|ProviderCollection
+     */
     public function amphures()
     {
         return $this->hasMany(Amphure::class);

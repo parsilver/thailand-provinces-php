@@ -4,13 +4,19 @@
 class Amphure extends ProviderCollection{
 
 
+    /**
+     * @return array
+     */
     public function province()
     {
         return $this->belongsTo(Province::class);
     }
 
 
-    public function district()
+    /**
+     * @return District|ProviderCollection
+     */
+    public function districts()
     {
         return $this->hasMany(District::class);
     }

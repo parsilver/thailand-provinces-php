@@ -21,11 +21,21 @@ class ProvinceTest extends PHPUnit_Framework_TestCase {
         $geography = 'ภาคตะวันออกเฉียงเหนือ';
         $totalAmphure = 25;
 
+        $amphurMueangUdonthaniId = 421;
+        $totalDistrictAmphureMuengUdonthani = 29;
+
         $province = Factory::province()->find($id);
 
         $this->assertEquals($shouldSee, $province['name_en']);
+
         $this->assertEquals($geography, $province->geography()['name']);
+
         $this->assertEquals($totalAmphure, $province->amphures()->count());
+
+        $this->assertEquals(
+            $totalDistrictAmphureMuengUdonthani,
+            $province->amphures()->find($amphurMueangUdonthaniId)->districts()->count()
+        );
     }
 
 }
