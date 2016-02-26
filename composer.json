@@ -10,7 +10,10 @@
             "email": "magician_canobi@hotmail.com"
         }
     ],
-    "minimum-stability": "1.0",
+
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+
     "require": {
         "php": ">=5.5.9"
     },
