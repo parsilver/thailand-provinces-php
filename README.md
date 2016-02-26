@@ -15,7 +15,7 @@ composer require parsilver/thailand-provinces-php
 ยกตัวอย่างเช่น หากท่านต้องการดึงจังหวัดทั้งหมด ให้เรียกใช้งานแค่ `Factory::province()`
 
 ```php
-<?php 
+<?php
 use PA\ProvinceTh\Factory;
 
 $provinces = Factory::province(); // PA\ProvinceTh\Provider\ProviderCollection
@@ -28,10 +28,10 @@ echo $provinces; // Json
 $provinceArray = $provinces->toArray();
 ```
 
-นอกจากนั้น หากต้องการค้นหาว่าจังหวัดนั้นๆอำเภอใดบ้าง
+นอกจากนั้น หากต้องการค้นหาว่าจังหวัดนั้นๆมีอำเภอใดบ้าง
 ```php
 <?php
-$amphures = $provinces->amphures(); // PA\ProvinceTh\Provider\ProviderCollection
+$amphures = $provinces->find(1)->amphures(); // PA\ProvinceTh\Provider\ProviderCollection
 echo $amphures; // Json
 ```
 
@@ -128,7 +128,7 @@ $provinces->getPrimaryKey()
 #### `PA\ProvinceTh\Provider\Geography`
 
 ```php
-<?php 
+<?php
 use PA\ProvinceTh\Factory;
 
 $geography = Factory::geography();
@@ -143,7 +143,7 @@ $geography->find(1)->provinces();
 #### `PA\ProvinceTh\Provider\Province`
 
 ```php
-<?php 
+<?php
 use PA\ProvinceTh\Factory;
 
 $province = Factory::province();
@@ -164,7 +164,7 @@ $province->find(1)->amphures();
 #### `PA\ProvinceTh\Provider\Amphure`
 
 ```php
-<?php 
+<?php
 use PA\ProvinceTh\Factory;
 
 $amphure = Factory::amphure();
@@ -185,7 +185,7 @@ $amphure->find(1)->districts();
 #### `PA\ProvinceTh\Provider\District`
 
 ```php
-<?php 
+<?php
 use PA\ProvinceTh\Factory;
 
 $district = Factory::district();

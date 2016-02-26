@@ -2,7 +2,7 @@
     "name": "parsilver/thailand-provinces-php",
     "description": "Provinces database in thailand.",
     "keywords": ["province", "thailand", "amphure"],
-    "type": "project",
+    "type": "library",
     "license": "MIT",
     "authors": [
         {
