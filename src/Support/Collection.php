@@ -53,13 +53,10 @@ class Collection implements ArrayAccess, JsonSerializable{
 
     public function filter(callable $callback = null)
     {
-        if ($callback)
-        {
+        if ($callback) {
             $return = [];
-            foreach ($this->items as $key => $value)
-            {
-                if ($callback($value, $key))
-                {
+            foreach ($this->items as $key => $value) {
+                if ($callback($value, $key)) {
                     $return[$key] = $value;
                 }
             }
@@ -71,7 +68,9 @@ class Collection implements ArrayAccess, JsonSerializable{
 
     public function first()
     {
-        return isset($this->items[0]) ? $this->items[0] : null;
+        return isset($this->items[0]) 
+            ? $this->items[0] 
+            : null;
     }
 
 
@@ -94,10 +93,9 @@ class Collection implements ArrayAccess, JsonSerializable{
 
     private function getArrayableItems($item)
     {
-        if(is_array($item))
-        {
+        if(is_array($item)) {
             return $item;
-        }elseif($item instanceof self){
+        } elseif($item instanceof self) {
             return $item->toArray();
         }
 
@@ -113,7 +111,9 @@ class Collection implements ArrayAccess, JsonSerializable{
 
     public function offsetGet($offset)
     {
-        return isset($this->items[$offset]) ? $this->items[$offset] : null;
+        return isset($this->items[$offset]) 
+            ? $this->items[$offset] 
+            : null;
     }
 
 
