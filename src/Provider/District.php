@@ -12,9 +12,9 @@ class District extends ProviderCollection {
         return $this->belongsTo(Amphure::class);
     }
 
-
-
-
+    /**
+     * @return array
+     */
     public function data()
     {
         return $districts = [
@@ -8930,7 +8930,7 @@ class District extends ProviderCollection {
             ['id' => '380706', 'zip_code' => '38190', 'name_th' => 'หนองยอง', 'name_en' => 'Nong Yong', 'amphure_id' => '1005'],
             ['id' => '380801', 'zip_code' => '38000', 'name_th' => 'โคกกว้าง', 'name_en' => 'Khok Kwang', 'amphure_id' => '1006'],
             ['id' => '380802', 'zip_code' => '38000', 'name_th' => 'บุ่งคล้า', 'name_en' => 'Bung Khla', 'amphure_id' => '1006'],
-            ['id' => '380803', 'zip_code' => '38000', 'name_th' => 'หนองเดิน', 'name_en' => 'Nong Doen', 'amphure_id' => '1006']
+            ['id' => '380803', 'zip_code' => '38000', 'name_th' => 'หนองเดิน', 'name_en' => 'Nong Doen', 'amphure_id' => '1006'],
         ];
     }
 

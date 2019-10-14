@@ -1,10 +1,9 @@
 <?php
 
-
+use PHPUnit\Framework\TestCase;
 use PA\ProvinceTh\Support\Collection;
 
-class CollectionTest extends PHPUnit_Framework_TestCase {
-
+class CollectionTest extends TestCase {
 
 
     public function testWhere()
@@ -81,8 +80,7 @@ class CollectionTest extends PHPUnit_Framework_TestCase {
 
             $loop++;
 
-            if($value == $stopValue)
-            {
+            if($value == $stopValue) {
                 return false;
             }
         });

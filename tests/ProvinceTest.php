@@ -1,9 +1,10 @@
 <?php
 
-
+use PHPUnit\Framework\TestCase;
 use PA\ProvinceTh\Factory;
 
-class ProvinceTest extends PHPUnit_Framework_TestCase {
+
+class ProvinceTest extends TestCase {
 
 
     public function testAllProvince()

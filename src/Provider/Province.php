@@ -104,7 +104,7 @@ class Province extends ProviderCollection {
             ['id' => '74', 'code' => '94', 'name_th' => 'ปัตตานี', 'name_en' => 'Pattani', 'geography_id' => '6'],
             ['id' => '75', 'code' => '95', 'name_th' => 'ยะลา', 'name_en' => 'Yala', 'geography_id' => '6'],
             ['id' => '76', 'code' => '96', 'name_th' => 'นราธิวาส', 'name_en' => 'Narathiwat', 'geography_id' => '6'],
-            ['id' => '77', 'code' => '97', 'name_th' => 'บึงกาฬ', 'name_en' => 'Bueng Kan', 'geography_id' => '3']
+            ['id' => '77', 'code' => '97', 'name_th' => 'บึงกาฬ', 'name_en' => 'Bueng Kan', 'geography_id' => '3'],
         ];
     }
 }

@@ -1037,5 +1037,4 @@ class Amphure extends ProviderCollection{
         ];
     }
 
-
 }

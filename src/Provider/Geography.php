@@ -12,7 +12,9 @@ class Geography extends ProviderCollection  {
         return $this->hasMany(Province::class);
     }
 
-    
+    /**
+     * @return array
+     */
     public function data()
     {
         return $geographies = [
@@ -21,7 +23,7 @@ class Geography extends ProviderCollection  {
             ['id' => '3', 'name' => 'ภาคตะวันออกเฉียงเหนือ'],
             ['id' => '4', 'name' => 'ภาคตะวันตก'],
             ['id' => '5', 'name' => 'ภาคตะวันออก'],
-            ['id' => '6', 'name' => 'ภาคใต้']
+            ['id' => '6', 'name' => 'ภาคใต้'],
         ];
     }
 
