@@ -94,7 +94,7 @@ class Province extends ProviderCollection {
             ['id' => '64', 'code' => '81', 'name_th' => 'กระบี่', 'name_en' => 'Krabi', 'geography_id' => '6'],
             ['id' => '65', 'code' => '82', 'name_th' => 'พังงา', 'name_en' => 'Phangnga', 'geography_id' => '6'],
             ['id' => '66', 'code' => '83', 'name_th' => 'ภูเก็ต', 'name_en' => 'Phuket', 'geography_id' => '6'],
-            ['id' => '67', 'code' => '84', 'name_th' => 'สุราษฎร์ธานี', 'name_en' => 'SuratThani', 'geography_id' => '6'],
+            ['id' => '67', 'code' => '84', 'name_th' => 'สุราษฎร์ธานี', 'name_en' => 'Surat Thani', 'geography_id' => '6'],
             ['id' => '68', 'code' => '85', 'name_th' => 'ระนอง', 'name_en' => 'Ranong', 'geography_id' => '6'],
             ['id' => '69', 'code' => '86', 'name_th' => 'ชุมพร', 'name_en' => 'Chumphon', 'geography_id' => '6'],
             ['id' => '70', 'code' => '90', 'name_th' => 'สงขลา', 'name_en' => 'Songkhla', 'geography_id' => '6'],
