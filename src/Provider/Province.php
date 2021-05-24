@@ -34,7 +34,7 @@ class Province extends ProviderCollection {
             ['id' => '4', 'code' => '13', 'name_th' => 'ปทุมธานี', 'name_en' => 'Pathum Thani', 'geography_id' => '2'],
             ['id' => '5', 'code' => '14', 'name_th' => 'พระนครศรีอยุธยา', 'name_en' => 'Phra Nakhon Si Ayutthaya', 'geography_id' => '2'],
             ['id' => '6', 'code' => '15', 'name_th' => 'อ่างทอง', 'name_en' => 'Ang Thong', 'geography_id' => '2'],
-            ['id' => '7', 'code' => '16', 'name_th' => 'ลพบุรี', 'name_en' => 'Loburi', 'geography_id' => '2'],
+            ['id' => '7', 'code' => '16', 'name_th' => 'ลพบุรี', 'name_en' => 'Lopburi', 'geography_id' => '2'],
             ['id' => '8', 'code' => '17', 'name_th' => 'สิงห์บุรี', 'name_en' => 'Sing Buri', 'geography_id' => '2'],
             ['id' => '9', 'code' => '18', 'name_th' => 'ชัยนาท', 'name_en' => 'Chai Nat', 'geography_id' => '2'],
             ['id' => '10', 'code' => '19', 'name_th' => 'สระบุรี', 'name_en' => 'Saraburi', 'geography_id' => '2'],
