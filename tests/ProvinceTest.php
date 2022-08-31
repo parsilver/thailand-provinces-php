@@ -1,11 +1,11 @@
 <?php
 
-use PHPUnit\Framework\TestCase;
+namespace Farzai\ThailandAddress\Tests;
+
 use PA\ProvinceTh\Factory;
 
-
-class ProvinceTest extends TestCase {
-
+class ProvinceTest extends TestCase
+{
 
     public function testAllProvince()
     {
@@ -38,5 +38,4 @@ class ProvinceTest extends TestCase {
             $province->amphures()->find($amphurMueangUdonthaniId)->districts()->count()
         );
     }
-
 }

@@ -4,6 +4,15 @@
 
 [![Build Status](https://travis-ci.org/parsilver/thailand-provinces-php.svg?branch=master)](https://github.com/parsilver/thailand-provinces-php)
 
+
+## ความต้องการของระบบ
+```
+{
+    "php" : "^7.3||^8.0",
+}
+```
+
+
 ## การติดตั้ง
 
 ```sh

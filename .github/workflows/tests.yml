@@ -1,0 +1,22 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        php: [ '7.2', '7.3', '7.4', '8.0', '8.1' ]
+    name: PHP ${{ matrix.php }}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Composer
+        run: composer install
+      - name: Run Tests
+        run: composer test

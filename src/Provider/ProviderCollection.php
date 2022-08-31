@@ -1,8 +1,11 @@
-<?php namespace PA\ProvinceTh\Provider;
+<?php
+
+namespace PA\ProvinceTh\Provider;
 
 use PA\ProvinceTh\Support\Collection;
 
-abstract class ProviderCollection extends Collection {
+abstract class ProviderCollection extends Collection
+{
 
     /**
      * @return array
@@ -37,10 +40,10 @@ abstract class ProviderCollection extends Collection {
      */
     public function each(callable $callback)
     {
-        foreach($this->getItems() as $key => $value) {
+        foreach ($this->getItems() as $key => $value) {
             $callbackResult = $callback(new static($value), $key);
 
-            if($callbackResult === false) {
+            if ($callbackResult === false) {
                 break;
             }
         }
@@ -63,13 +66,13 @@ abstract class ProviderCollection extends Collection {
      */
     protected function hasMany($provider, $foreignKey = null)
     {
-        if($this->itemIsObject()) {
+        if ($this->itemIsObject()) {
             $this->setItems([$this->getItems()]);
         }
 
         $provider = new $provider();
 
-        if(is_null($foreignKey)) {
+        if (is_null($foreignKey)) {
             $foreignKey = strtolower($this->getClassName($this)) . '_id';
         }
 
@@ -84,13 +87,13 @@ abstract class ProviderCollection extends Collection {
      */
     protected function belongsTo($provider, $localForeignKey = null)
     {
-        if($this->itemIsObject()) {
+        if ($this->itemIsObject()) {
             $this->setItems([$this->getItems()]);
         }
 
         $provider = new $provider();
 
-        if(is_null($localForeignKey)) {
+        if (is_null($localForeignKey)) {
             $localForeignKey = strtolower($this->getClassName($provider)) . '_id';
         }
 

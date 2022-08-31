@@ -1,8 +1,9 @@
-<?php namespace PA\ProvinceTh\Provider;
+<?php
 
+namespace PA\ProvinceTh\Provider;
 
-class Province extends ProviderCollection {
-
+class Province extends ProviderCollection
+{
 
     /**
      * @return array

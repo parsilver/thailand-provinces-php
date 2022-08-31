@@ -1,9 +1,10 @@
-<?php namespace PA\ProvinceTh\Provider;
+<?php 
+
+namespace PA\ProvinceTh\Provider;
 
 
-class District extends ProviderCollection {
-
-
+class District extends ProviderCollection 
+{
     /**
      * @return array
      */
@@ -8933,6 +8934,4 @@ class District extends ProviderCollection {
             ['id' => '380803', 'zip_code' => '38000', 'name_th' => 'หนองเดิน', 'name_en' => 'Nong Doen', 'amphure_id' => '1006'],
         ];
     }
-
-
 }

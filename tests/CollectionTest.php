@@ -1,9 +1,11 @@
 <?php
 
-use PHPUnit\Framework\TestCase;
+namespace Farzai\ThailandAddress\Tests;
+
 use PA\ProvinceTh\Support\Collection;
 
-class CollectionTest extends TestCase {
+class CollectionTest extends TestCase
+{
 
 
     public function testWhere()
@@ -23,7 +25,6 @@ class CollectionTest extends TestCase {
 
         $this->assertEquals($itemAfter, $result->toArray());
     }
-
 
     public function testWhereFirst()
     {
@@ -51,7 +52,7 @@ class CollectionTest extends TestCase {
         ];
 
         $collection = new Collection($itemBefore);
-        $result = $collection->filter(function($item){
+        $result = $collection->filter(function ($item) {
             return $item['id'] == 2;
         });
 
@@ -76,11 +77,11 @@ class CollectionTest extends TestCase {
 
         $collection = new Collection($items);
 
-        $collection->each(function($value) use (&$loop, $stopValue){
+        $collection->each(function ($value) use (&$loop, $stopValue) {
 
             $loop++;
 
-            if($value == $stopValue) {
+            if ($value == $stopValue) {
                 return false;
             }
         });

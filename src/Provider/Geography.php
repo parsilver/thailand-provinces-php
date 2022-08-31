@@ -1,7 +1,10 @@
-<?php namespace PA\ProvinceTh\Provider;
+<?php
+
+namespace PA\ProvinceTh\Provider;
 
 
-class Geography extends ProviderCollection  {
+class Geography extends ProviderCollection
+{
 
 
     /**
@@ -26,6 +29,4 @@ class Geography extends ProviderCollection  {
             ['id' => '6', 'name' => 'ภาคใต้'],
         ];
     }
-
-
 }

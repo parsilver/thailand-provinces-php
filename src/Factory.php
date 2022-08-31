@@ -1,12 +1,14 @@
-<?php namespace PA\ProvinceTh;
+<?php
+
+namespace PA\ProvinceTh;
 
 use PA\ProvinceTh\Provider\Amphure;
 use PA\ProvinceTh\Provider\District;
 use PA\ProvinceTh\Provider\Geography;
 use PA\ProvinceTh\Provider\Province;
 
-class Factory {
-
+class Factory
+{
 
     /**
      * @return Geography
@@ -33,7 +35,6 @@ class Factory {
         return new Amphure();
     }
 
-
     /**
      * @return District
      */
@@ -41,6 +42,4 @@ class Factory {
     {
         return new District();
     }
-
 }
-

@@ -1,10 +1,13 @@
-<?php namespace PA\ProvinceTh\Support;
+<?php
+
+namespace PA\ProvinceTh\Support;
 
 use ArrayAccess;
 use JsonSerializable;
 
 
-class Collection implements ArrayAccess, JsonSerializable {
+class Collection implements ArrayAccess, JsonSerializable
+{
 
     /**
      * @var array
@@ -41,10 +44,10 @@ class Collection implements ArrayAccess, JsonSerializable {
      */
     public function each(callable $callback)
     {
-        foreach($this->items as $key => $value) {
+        foreach ($this->items as $key => $value) {
             $callbackResult = $callback($value, $key);
 
-            if($callbackResult === false) {
+            if ($callbackResult === false) {
                 break;
             }
         }
@@ -57,7 +60,7 @@ class Collection implements ArrayAccess, JsonSerializable {
      */
     public function where($key, $value = null)
     {
-        return $this->filter(function($item) use ($key, $value){
+        return $this->filter(function ($item) use ($key, $value) {
             return $item[$key] == $value;
         });
     }
@@ -85,8 +88,8 @@ class Collection implements ArrayAccess, JsonSerializable {
      */
     public function first()
     {
-        return isset($this->items[0]) 
-            ? $this->items[0] 
+        return isset($this->items[0])
+            ? $this->items[0]
             : null;
     }
 
@@ -112,9 +115,9 @@ class Collection implements ArrayAccess, JsonSerializable {
      */
     private function getArrayableItems($item)
     {
-        if(is_array($item)) {
+        if (is_array($item)) {
             return $item;
-        } elseif($item instanceof self) {
+        } elseif ($item instanceof self) {
             return $item->toArray();
         }
 
@@ -136,8 +139,8 @@ class Collection implements ArrayAccess, JsonSerializable {
      */
     public function offsetGet($offset)
     {
-        return isset($this->items[$offset]) 
-            ? $this->items[$offset] 
+        return isset($this->items[$offset])
+            ? $this->items[$offset]
             : null;
     }
 
