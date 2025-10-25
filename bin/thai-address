@@ -1,0 +1,35 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+// Find the autoloader
+$autoloadPaths = [
+    __DIR__.'/../vendor/autoload.php',
+    __DIR__.'/../../../autoload.php',
+];
+
+$autoloaderFound = false;
+foreach ($autoloadPaths as $autoloadPath) {
+    if (file_exists($autoloadPath)) {
+        require_once $autoloadPath;
+        $autoloaderFound = true;
+        break;
+    }
+}
+
+if (! $autoloaderFound) {
+    fwrite(
+        STDERR,
+        'Error: Unable to find Composer autoloader. Please run "composer install"'.PHP_EOL
+    );
+    exit(1);
+}
+
+use Farzai\ThailandAddress\Console\Application;
+
+// Create and run the application
+$application = new Application();
+$exitCode = $application->run();
+
+exit($exitCode);

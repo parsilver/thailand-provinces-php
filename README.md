@@ -1,207 +1,99 @@
-# ฐานข้อมูลจังหวัดในประเทศไทย(PHP)
+# Thai Slug PHP
 
-ฐานข้อมูลนี้ถูกดัดแปลงมาจาก https://github.com/parsilver/thailand-provinces โดยการเอาข้อมูลทั้งหมดมาเป็น PHP แล้วรวบให้เป็น ORM เพื่อที่จะสามารถใช้งานได้ง่ายยิ่งขึ้น
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/farzai/thailand-address.svg?style=flat-square)](https://packagist.org/packages/farzai/thailand-address)
+[![Tests](https://img.shields.io/github/actions/workflow/status/parsilver/thailand-provinces-php/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/parsilver/thailand-provinces-php/actions/workflows/run-tests.yml)
+[![Total Downloads](https://img.shields.io/packagist/dt/farzai/thailand-address.svg?style=flat-square)](https://packagist.org/packages/farzai/thailand-address)
+[![PHP Version Require](http://poser.pugx.org/farzai/thailand-address/require/php?style=flat-square)](https://packagist.org/packages/farzai/thailand-address)
 
-[![Build Status](https://travis-ci.org/parsilver/thailand-provinces-php.svg?branch=master)](https://github.com/parsilver/thailand-provinces-php)
 
 
-## ความต้องการของระบบ
+## 📋 Requirements
+
+- PHP 8.4 or higher
+
+## 📦 Installation
+
+You can install the package via Composer:
+
+```bash
+composer require farzai/thailand-address
 ```
-{
-    "php" : "^7.3||^8.0",
-}
-```
 
+## 🔥 Quick Start
 
-## การติดตั้ง
-
-```sh
-composer require parsilver/thailand-provinces-php
-```
-
-## เริ่มต้นการใช้งาน
-
-ยกตัวอย่างเช่น หากท่านต้องการดึงจังหวัดทั้งหมด ให้เรียกใช้งานแค่ `Factory::province()`
-
+### Basic Usage
 ```php
-<?php
-use PA\ProvinceTh\Factory;
-
-$provinces = Factory::province(); // PA\ProvinceTh\Provider\ProviderCollection
-echo $provinces; // Json
+#
 ```
 
-หากต้องการแปลงเป็น `Array` ก็สามารถทำได้ดังนี้
-```php
-<?php
-$provinceArray = $provinces->toArray();
+## 🧪 Testing
+
+Run the test suite and code quality tools:
+
+```bash
+# Run all tests
+composer test
+
+# Run tests with coverage
+composer test-coverage
+
+# Run tests with HTML coverage report
+composer test-coverage-html
+
+# Code analysis with PHPStan
+composer analyse
+
+# Format code with Laravel Pint
+composer format
+
+# Check code formatting
+composer format-check
+
+# Run all quality checks
+composer check-code
+
+# Complete CI pipeline
+composer ci
 ```
 
-นอกจากนั้น หากต้องการค้นหาว่าจังหวัดนั้นๆมีอำเภอใดบ้าง
-```php
-<?php
-$amphures = $provinces->find(1)->amphures(); // PA\ProvinceTh\Provider\ProviderCollection
-echo $amphures; // Json
+## 🤝 Contributing
+
+We welcome contributions! Please follow these guidelines:
+
+### Development Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/parsilver/thailand-provinces-php.git
+
+# Install dependencies
+composer install
+
+# Run tests
+composer test
+
+# Run code analysis
+composer analyse
+
+# Format code
+composer format
 ```
 
+## 📝 Changelog
 
-## API
+Please see [CHANGELOG.md](CHANGELOG.md) for more information on what has changed recently.
 
-#### PA\ProvinceTh\Factory
-```php
-<?php
-use PA\ProvinceTh\Factory;
+## 🔒 Security
 
-/**
-* ภูมิภาค
-* @return PA\ProvinceTh\Provider\Geography|PA\ProvinceTh\Provider\ProviderCollection
-*/
-$geography  = Factory::geography();
+If you discover any security-related issues, please email parkorn@farzai.com instead of using the issue tracker.
 
-/**
-* จังหวัด
-* @return PA\ProvinceTh\Provider\Province|PA\ProvinceTh\Provider\ProviderCollection
-*/
-$provinces  = Factory::province();
+## 📄 License
 
-/**
-* อำเภอ
-* @return PA\ProvinceTh\Provider\Amphure|PA\ProvinceTh\Provider\ProviderCollection
-*/
-$amphures   = Factory::amphure();
+The MIT License (MIT). Please see [License File](LICENSE.md) for more information.
 
-/**
-* ตำบล
-* @return PA\ProvinceTh\Provider\District|PA\ProvinceTh\Provider\ProviderCollection
-*/
-$districts  = Factory::district();
-```
+## 🙏 Credits
 
-#### PA\ProvinceTh\Provider\ProviderCollection
+- [parsilver](https://github.com/parsilver) - Creator and maintainer
+- [All Contributors](../../contributors) - Community contributors
 
-```php
-<?php
-use PA\ProvinceTh\Factory;
-
-/**
-* @return PA\ProvinceTh\Provider\ProviderCollection
-*/
-$provinces = Factory::province();
-
-/**
-* จำนวน
-* @return int
-*/
-$provinces->count();
-
-/**
-* ค้นหาจาก Primary key และ return 1 column
-* @return PA\ProvinceTh\Provider\ProviderCollection
-*/
-$provinces->find($id);
-
-/**
-* ค้นหา
-* @return PA\ProvinceTh\Provider\ProviderCollection
-*/
-$provinces->where($key, $value);
-
-/**
-* Foreach
-*@return Void
-*/
-$provinces->each(function($value, $key){
-    // หาต้องการหยุด ให้ return false
-});
-
-/**
-* ค้นหาด้วยตัวเอง
-* @return PA\ProvinceTh\Provider\ProviderCollection
-*/
-$provinces->filter(function($value, $key){
-    return true; // Return true หากค้นพบ
-});
-
-/**
-* @return array
-*/
-$provinces->toArray();
-
-/**
-* Get primary key
-* @return string
-*/
-$provinces->getPrimaryKey()
-```
-
-#### `PA\ProvinceTh\Provider\Geography`
-
-```php
-<?php
-use PA\ProvinceTh\Factory;
-
-$geography = Factory::geography();
-
-/**
-* จังหวัดของภูมิภาคนั้น
-* @return PA\ProvinceTh\Provider\Province|PA\ProvinceTh\Provider\ProviderCollection
-*/
-$geography->find(1)->provinces();
-```
-
-#### `PA\ProvinceTh\Provider\Province`
-
-```php
-<?php
-use PA\ProvinceTh\Factory;
-
-$province = Factory::province();
-
-/**
-* ภูมิภาคของจังหวัดนั้น
-* @return PA\ProvinceTh\Provider\Geography|PA\ProvinceTh\Provider\ProviderCollection
-*/
-$province->find(1)->geography();
-
-/**
-* อำเภอทั้งหมดคของจังหวัดนั้น
-* @return PA\ProvinceTh\Provider\Amphure|PA\ProvinceTh\Provider\ProviderCollection
-*/
-$province->find(1)->amphures();
-```
-
-#### `PA\ProvinceTh\Provider\Amphure`
-
-```php
-<?php
-use PA\ProvinceTh\Factory;
-
-$amphure = Factory::amphure();
-
-/**
-* จังหวัดคของอำเภอนั้น
-* @return PA\ProvinceTh\Provider\Province|PA\ProvinceTh\Provider\ProviderCollection
-*/
-$amphure->find(1)->province();
-
-/**
-* ตำบลทั้งหมดของอำเภอนั้น
-* @return PA\ProvinceTh\Provider\District|PA\ProvinceTh\Provider\ProviderCollection
-*/
-$amphure->find(1)->districts();
-```
-
-#### `PA\ProvinceTh\Provider\District`
-
-```php
-<?php
-use PA\ProvinceTh\Factory;
-
-$district = Factory::district();
-
-/**
-* อำเภอของตำบลนั้น
-* @return PA\ProvinceTh\Provider\Amphure|PA\ProvinceTh\Provider\ProviderCollection
-*/
-$district->find(1)->amphure();
-```
+Built with ❤️ for the Thai developer community.

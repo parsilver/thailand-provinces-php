@@ -1,34 +1,77 @@
 {
-    "name": "parsilver/thailand-provinces-php",
-    "description": "Thailand address database",
-    "keywords": ["province", "thailand", "amphure", "address"],
-    "type": "library",
+    "name": "farzai/thailand-address",
+    "description": "",
+    "keywords": [
+        "php"
+    ],
+    "homepage": "https://github.com/parsilver/thailand-provinces-php",
     "license": "MIT",
     "authors": [
         {
-            "name": "PA",
-            "role": "DevOps"
+            "name": "parsilver",
+            "role": "Developer"
         }
     ],
-    "minimum-stability": "stable",
-    "prefer-stable": true,
     "require": {
-        "php": "^7.2||^8.0"
+        "php": "^8.4",
+        "symfony/console": "^7.0",
+        "symfony/css-selector": "^7.0",
+        "symfony/dom-crawler": "^7.0",
+        "symfony/http-client": "^7.0"
     },
     "require-dev": {
-        "phpunit/phpunit": "^9.4"
+        "laravel/pint": "^1.17",
+        "pestphp/pest": "^4.0",
+        "phpstan/extension-installer": "^1.4",
+        "phpstan/phpstan": "^2.0",
+        "phpstan/phpstan-strict-rules": "^2.0",
+        "phpstan/phpstan-phpunit": "^2.0",
+        "rector/rector": "^2.0",
+        "shipmonk/phpstan-rules": "^4.2",
+        "tomasvotruba/unused-public": "^2.0"
     },
     "autoload": {
         "psr-4": {
-            "PA\\ProvinceTh\\": "src/"
+            "Farzai\\ThailandAddress\\": "src"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Farzai\\ThailandAddress\\Tests\\":  "tests"
+            "Farzai\\ThailandAddress\\Tests\\": "tests"
         }
     },
+    "bin": [
+        "bin/thai-address"
+    ],
     "scripts": {
-        "test" : "vendor/bin/phpunit"
+        "test": "vendor/bin/pest",
+        "test-coverage": "vendor/bin/pest --coverage",
+        "test-coverage-html": "vendor/bin/pest --coverage-html coverage",
+        "format": "vendor/bin/pint --ansi",
+        "format-check": "vendor/bin/pint --test --ansi",
+        "analyse": "vendor/bin/phpstan analyse --memory-limit=1G --ansi",
+        "check-code": [
+            "@format-check",
+            "@analyse"
+        ],
+        "ci": [
+            "@check-code",
+            "@test-coverage"
+        ]
+    },
+    "config": {
+        "sort-packages": true,
+        "optimize-autoloader": true,
+        "classmap-authoritative": true,
+        "apcu-autoloader": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true,
+            "phpstan/extension-installer": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "platform": {
+        "php": "8.4.0"
     }
 }

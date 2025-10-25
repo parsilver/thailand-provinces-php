@@ -1,0 +1,89 @@
+name: Test Province Scraping
+
+on:
+  schedule:
+    # Run every Sunday at midnight UTC
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+    # Allow manual trigger from Actions tab
+
+permissions:
+  contents: read
+
+jobs:
+  test-scraping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.4
+          extensions: mbstring, intl, iconv, dom, libxml
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-dev
+
+      - name: Test thai-address list command
+        id: scrape
+        run: |
+          echo "Testing province scraping..."
+          OUTPUT=$(./bin/thai-address list)
+          echo "$OUTPUT"
+
+          # Extract the number of provinces found
+          PROVINCE_COUNT=$(echo "$OUTPUT" | grep -oP 'Found \K\d+' || echo "0")
+          echo "province_count=$PROVINCE_COUNT" >> $GITHUB_OUTPUT
+
+          echo "Found $PROVINCE_COUNT provinces"
+
+      - name: Validate province count
+        run: |
+          PROVINCE_COUNT=${{ steps.scrape.outputs.province_count }}
+
+          if [ "$PROVINCE_COUNT" -eq 76 ]; then
+            echo "✅ Success: Found exactly 76 provinces"
+            exit 0
+          elif [ "$PROVINCE_COUNT" -gt 70 ] && [ "$PROVINCE_COUNT" -lt 80 ]; then
+            echo "⚠️  Warning: Found $PROVINCE_COUNT provinces (expected 76)"
+            echo "This might be acceptable if the government portal structure changed slightly"
+            exit 0
+          else
+            echo "❌ Error: Found $PROVINCE_COUNT provinces (expected 76)"
+            echo "The scraping logic may need to be updated"
+            exit 1
+          fi
+
+      - name: Test download command help
+        run: ./bin/thai-address download --help
+
+      - name: Test validate command help
+        run: ./bin/thai-address validate --help
+
+      - name: Create issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Province scraping test failed',
+              body: `The weekly province scraping test has failed.
+
+              **Run details:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+              This may indicate:
+              - The government portal structure has changed
+              - The data.go.th website is temporarily unavailable
+              - Network connectivity issues
+
+              Please investigate and update the scraping logic if needed.`,
+              labels: ['bug', 'scraping', 'automated']
+            });
+            console.log('Created issue:', issue.data.html_url);

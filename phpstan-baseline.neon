@@ -1,0 +1,19 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Call to function assert\(\) with true will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: src/Console/Commands/ListCommand.php
+
+		-
+			message: '#^Call to function is_int\(\) with int\<0, max\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: src/Console/Commands/ListCommand.php
+
+		-
+			message: '#^Throwing checked exception InvalidArgumentException in closure\!$#'
+			identifier: shipmonk.checkedExceptionInCallable
+			count: 2
+			path: src/Service/ProvinceScraperService.php
