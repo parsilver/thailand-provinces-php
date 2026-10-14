@@ -233,6 +233,8 @@ function validRows(string $file, mixed $rows): array
         is_string($r['name']['th'] ?? null) && trim($r['name']['th']) !== '' || $bad('no Thai name');
         $en = $r['name']['en'] ?? null;
         $en === null || is_string($en) || $bad('name.en is not a string or null');
+        // Names are text: no control character, NUL included, ever reaches data/.
+        preg_match('/[\x00-\x1f\x7f]/', $r['name']['th'] . ($en ?? '')) === 0 || $bad('a name holds a control character');
         if ($file === 'provinces') {
             is_string($r['iso_code'] ?? null) && preg_match('/^TH-[0-9A-Z]{1,3}\z/', $r['iso_code']) === 1 || $bad('iso_code is not TH-');
         }

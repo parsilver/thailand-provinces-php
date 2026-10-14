@@ -13,7 +13,17 @@ function grammarCheck(string $content): int
 {
     $file = tempnam(sys_get_temp_dir(), 'tpp-grammar-');
     file_put_contents($file, $content);
-    exec('bash ' . escapeshellarg(dirname(__DIR__, 2) . '/tools/check-data-grammar.sh') . ' ' . escapeshellarg($file) . ' 2>/dev/null', $out, $code);
+    // The runner has GNU grep; a dev Mac may not. Put it first on PATH when it
+    // is installed as ggrep, so the binary-file behaviour under test is the
+    // runner's.
+    $env = '';
+    if (is_executable('/opt/homebrew/bin/ggrep')) {
+        $bin = sys_get_temp_dir() . '/tpp-gnu-grep';
+        is_dir($bin) || mkdir($bin);
+        is_link("{$bin}/grep") || symlink('/opt/homebrew/bin/ggrep', "{$bin}/grep");
+        $env = 'PATH=' . escapeshellarg($bin . ':' . getenv('PATH')) . ' ';
+    }
+    exec($env . 'bash ' . escapeshellarg(dirname(__DIR__, 2) . '/tools/check-data-grammar.sh') . ' ' . escapeshellarg($file) . ' 2>/dev/null', $out, $code);
     unlink($file);
 
     return $code;
@@ -50,4 +60,13 @@ test('anything that is not the generated grammar is refused', function (string $
     'no opening tag' => [substr(generated("'10'=>['name_th'=>'x','name_en'=>'y'],"), 6)],
     'no closing bracket' => [substr(generated("'10'=>['name_th'=>'x','name_en'=>'y'],"), 0, -3)],
     'a heredoc' => [generated("'10'=>['name_th'=><<<X\nx\nX,'name_en'=>'y'],")],
+    // Security re-check on #22: one NUL makes GNU grep call the file binary,
+    // `grep -v` then prints no lines, and every other row went unchecked.
+    'a NUL in a string, then code on the next row' => [generated(
+        "'10'=>['name_th'=>'a\0b','name_en'=>'x','iso_code'=>'TH-10'],",
+        "'11'=>(function(){ file_put_contents('/tmp/pwned-grammar', 'owned'); return ['name_th'=>'x']; })(),",
+    )],
+    'a NUL alone' => [generated("'10'=>['name_th'=>'a\0b','name_en'=>'x'],")],
+    'a control byte in a string' => [generated("'10'=>['name_th'=>'a\x1bb','name_en'=>'x'],")],
+    'a DEL byte in a string' => [generated("'10'=>['name_th'=>'a\x7fb','name_en'=>'x'],")],
 ]);

@@ -171,6 +171,8 @@ test('a row of the wrong shape stops the import before anything is written', fun
     'an ISO code that is not TH-' => ['provinces.json', fn (array $r) => [['iso_code' => 'XX'] + $r[0], $r[1]], 'provinces.json'],
     'a district code of the wrong length' => ['districts.json', fn (array $r) => [['code' => '10011'] + $r[0], ...array_slice($r, 1)], 'districts.json'],
     'a subdistrict with no Thai name' => ['subdistricts.json', fn (array $r) => [['name' => ['th' => '', 'en' => null]] + $r[0], ...array_slice($r, 1)], 'subdistricts.json'],
+    'a control character in a Thai name' => ['subdistricts.json', fn (array $r) => [['name' => ['th' => "a\x00b", 'en' => null]] + $r[0], ...array_slice($r, 1)], 'subdistricts.json'],
+    'a control character in an English name' => ['districts.json', fn (array $r) => [['name' => ['th' => 'x', 'en' => "a\x1bb"]] + $r[0], ...array_slice($r, 1)], 'districts.json'],
     'an English name that is not a string' => ['subdistricts.json', fn (array $r) => [['name' => ['th' => 'x', 'en' => ['x']]] + $r[0], ...array_slice($r, 1)], 'subdistricts.json'],
     'a postal code that is not five digits' => ['postal_codes.json', fn (array $r) => [['postal_code' => '1020'] + $r[0], ...array_slice($r, 1)], 'postal_codes.json'],
     'a postal code with a trailing newline' => ['postal_codes.json', fn (array $r) => [['postal_code' => "10200\n"] + $r[0], ...array_slice($r, 1)], 'postal_codes.json'],
