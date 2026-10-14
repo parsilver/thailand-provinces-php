@@ -11,9 +11,11 @@
  * Sources (see README "Data sources"):
  *   - DOPA ทำเนียบท้องที่ ccaatt.xlsx: codes, Thai and English names.
  *   - Thailand Post getSubdistrict: one request listing every subdistrict
- *     code with its postcode.
- *   - MDES post-office CSV on data.go.th (CC Attribution): postcodes by
- *     province / amphoe / tambon name.
+ *     code with its postal code.
+ *   - MDES post-office CSV on data.go.th (CC Attribution): postal codes by
+ *     province / district / subdistrict name.
+ *   - Debian iso-codes (a tagged release): the ISO 3166-2:TH code of each
+ *     province, joined by DOPA code and checked by name.
  *
  * Politeness: an honest User-Agent, an on-disk cache so a source is fetched
  * once, at least 2 s between requests, at most 3 retries with backoff on 429 or
@@ -48,8 +50,8 @@ const SOURCES = [
         'method' => 'POST',
         'file' => 'thailandpost-getSubdistrict.json',
         'licence' => null,
-        'licence_note' => 'No licence is stated. Terms: https://postbase.thailandpost.co.th/th/terms-and-conditions. Thailand Post is the authority on postcodes.',
-        'used_for' => 'postcodes, joined by subdistrict code',
+        'licence_note' => 'No licence is stated. Terms: https://postbase.thailandpost.co.th/th/terms-and-conditions. Thailand Post is the authority on postal codes.',
+        'used_for' => 'postal codes, joined by subdistrict code',
     ],
     'mdes_postoffice' => [
         'name' => 'สถานที่ทำการไปรษณีย์ (post offices)',
@@ -60,9 +62,26 @@ const SOURCES = [
         'file' => 'postal-2026.06.30.csv',
         'licence' => 'Creative Commons Attributions (version not stated)',
         'licence_note' => 'Attribution: MDES, dataset "สถานที่ทำการไปรษณีย์" on data.go.th.',
-        'used_for' => 'postcodes, joined by province / district / subdistrict name',
+        'used_for' => 'postal codes, joined by province / district / subdistrict name',
+    ],
+    'iso_3166_2' => [
+        'name' => 'iso-codes iso_3166-2.json (ISO 3166-2 subdivision codes)',
+        'publisher' => 'Debian iso-codes project, from the ISO 3166 Maintenance Agency\'s published codes',
+        'url' => 'https://salsa.debian.org/iso-codes-team/iso-codes/-/raw/v4.20.1/data/iso_3166-2.json',
+        'landing' => 'https://salsa.debian.org/iso-codes-team/iso-codes',
+        'method' => 'GET',
+        'file' => 'iso_3166-2.json',
+        'licence' => 'LGPL-2.1-or-later (the iso-codes package); the codes themselves are ISO 3166-2:TH',
+        'licence_note' => 'Only the 77 province codes (TH-10 ... TH-96) are used. TH-S (Pattaya) has no DOPA province code and is not mapped.',
+        'used_for' => 'iso_code of each province',
     ],
 ];
+
+/**
+ * ISO 3166-2 names that are a different romanisation of the same province than
+ * DOPA's English name. Every other pair must be at least 80% similar.
+ */
+const ISO_NAME_ALIASES = ['TH-10' => ['Bangkok', 'Krung Thep Maha Nakhon']];
 
 // Run only as a script, so the tests can load the functions.
 if (PHP_SAPI === 'cli' && realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
@@ -97,20 +116,25 @@ function main(array $args): void
     }
 
     [$asOf, $areas] = readDopa("{$cacheDir}/" . SOURCES['dopa_ccaatt']['file']);
-    [$postcodes, $postcodeStats] = joinPostcodes(
+    [$postalCodes, $postalCodeStats] = joinPostalCodes(
         $areas,
         "{$cacheDir}/" . SOURCES['thailandpost_subdistricts']['file'],
         "{$cacheDir}/" . SOURCES['mdes_postoffice']['file'],
     );
+    $isoCodes = isoCodes($areas['province'], "{$cacheDir}/" . SOURCES['iso_3166_2']['file']);
     $counts = check($areas);
 
     $previous = is_file("{$root}/data/sources.json") ? json_decode((string) file_get_contents("{$root}/data/sources.json"), true) : null;
 
-    writePhp("{$root}/data/provinces.php", array_map(fn ($a) => [$a['th'], $a['en']], $areas['province']));
-    writePhp("{$root}/data/districts.php", array_map(fn ($a) => [$a['th'], $a['en']], $areas['district']));
+    $rows = [];
+    foreach ($areas['province'] as $code => $a) {
+        $rows[$code] = ['name_th' => $a['th'], 'name_en' => $a['en'], 'iso_code' => $isoCodes[(string) $code]];
+    }
+    writePhp("{$root}/data/provinces.php", $rows);
+    writePhp("{$root}/data/districts.php", array_map(fn ($a) => ['name_th' => $a['th'], 'name_en' => $a['en']], $areas['district']));
     $rows = [];
     foreach ($areas['subdistrict'] as $code => $a) {
-        $rows[$code] = [$a['th'], $a['en'], $postcodes[$code] ?? []];
+        $rows[$code] = ['name_th' => $a['th'], 'name_en' => $a['en'], 'postal_codes' => $postalCodes[$code] ?? []];
     }
     writePhp("{$root}/data/subdistricts.php", $rows);
 
@@ -134,14 +158,14 @@ function main(array $args): void
     }
     $manifest['sources']['dopa_ccaatt']['data_as_of'] = $asOf;
     $manifest['counts'] = $counts;
-    $manifest['postcodes'] = $postcodeStats;
+    $manifest['postal_codes'] = $postalCodeStats;
     file_put_contents(
         "{$root}/data/sources.json",
         json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n",
     );
 
     out('counts: ' . json_encode($counts, JSON_UNESCAPED_UNICODE));
-    out('postcodes: ' . json_encode($postcodeStats));
+    out('postal codes: ' . json_encode($postalCodeStats));
     if (is_array($previous) && ($previous['counts'] ?? null) !== $counts) {
         out('NOTE: counts changed from ' . json_encode($previous['counts'] ?? null) . '; update the tests deliberately.');
     }
@@ -268,6 +292,7 @@ function looksRight(string $id, string $content): bool
         'dopa_ccaatt' => str_starts_with($content, "PK\x03\x04"),
         'mdes_postoffice' => str_contains(substr($content, 0, 400), 'Postalcode'),
         'thailandpost_subdistricts' => is_array($rows = json_decode($content, true)) && isset($rows[0]['subdistrictsCode'], $rows[0]['zipcode']),
+        'iso_3166_2' => is_array($rows = json_decode($content, true)) && isset($rows['3166-2'][0]['code']),
         default => false,
     };
 }
@@ -352,13 +377,42 @@ function thaiDate(string $text): ?string
 }
 
 /**
- * Postcodes per subdistrict code: Thailand Post joined by code (when its name
- * agrees with DOPA's), MDES joined by normalised names, the union of both.
+ * The ISO 3166-2 code of every province: the iso-codes entry TH-<DOPA code>,
+ * accepted only when its name agrees with DOPA's English name.
+ *
+ * @param array<array-key, array{th: string, en: string}> $provinces
+ * @return array<string, string>
+ */
+function isoCodes(array $provinces, string $path): array
+{
+    $iso = [];
+    foreach (json_decode((string) file_get_contents($path), true, flags: JSON_THROW_ON_ERROR)['3166-2'] as $row) {
+        if (str_starts_with($row['code'], 'TH-')) {
+            $iso[$row['code']] = $row['name'];
+        }
+    }
+    $letters = fn (string $s): string => strtolower((string) preg_replace('/[^a-z]/i', '', $s));
+    $codes = [];
+    foreach ($provinces as $code => $a) {
+        $isoCode = 'TH-' . $code;
+        isset($iso[$isoCode]) || fail("ISO 3166-2 has no {$isoCode} for province {$code} {$a['en']}");
+        $agrees = (ISO_NAME_ALIASES[$isoCode] ?? null) === [$a['en'], $iso[$isoCode]]
+            || similarity($letters($a['en']), $letters($iso[$isoCode])) >= 0.8;
+        $agrees || fail("{$isoCode} is \"{$iso[$isoCode]}\" in ISO 3166-2 but DOPA {$code} is \"{$a['en']}\"; check it and extend ISO_NAME_ALIASES");
+        $codes[(string) $code] = $isoCode;
+    }
+
+    return $codes;
+}
+
+/**
+ * Postal codes per subdistrict code: Thailand Post joined by code (when its
+ * name agrees with DOPA's), MDES joined by normalised names, the union of both.
  *
  * @param array{province: array<string, array{th: string, en: string}>, district: array<string, array{th: string, en: string}>, subdistrict: array<string, array{th: string, en: string}>} $areas
  * @return array{array<string, list<string>>, array<string, int>}
  */
-function joinPostcodes(array $areas, string $thailandPostPath, string $mdesPath): array
+function joinPostalCodes(array $areas, string $thailandPostPath, string $mdesPath): array
 {
     $byName = [];
     foreach ($areas['subdistrict'] as $code => $a) {
@@ -412,20 +466,20 @@ function joinPostcodes(array $areas, string $thailandPostPath, string $mdesPath)
     }
     fclose($handle);
 
-    $postcodes = [];
-    $stats = ['subdistricts' => count($areas['subdistrict']), 'with_postcode' => 0, 'both_sources' => 0, 'thailandpost_only' => 0, 'mdes_only' => 0, 'sources_disagree' => 0, 'without_postcode' => 0, 'thailandpost_withheld_name_mismatch' => $withheld, 'mdes_rows_unmatched' => $unmatched];
+    $postalCodes = [];
+    $stats = ['subdistricts' => count($areas['subdistrict']), 'with_postal_code' => 0, 'both_sources' => 0, 'thailandpost_only' => 0, 'mdes_only' => 0, 'sources_disagree' => 0, 'without_postal_code' => 0, 'thailandpost_withheld_name_mismatch' => $withheld, 'mdes_rows_unmatched' => $unmatched];
     foreach (array_keys($areas['subdistrict']) as $code) {
         $code = (string) $code;
         $t = array_keys($tp[$code] ?? []);
         $m = array_keys($mdes[$code] ?? []);
         if ($t === [] && $m === []) {
-            $stats['without_postcode']++;
+            $stats['without_postal_code']++;
             continue;
         }
         $all = array_map('strval', array_unique([...$t, ...$m]));
         sort($all, SORT_STRING);
-        $postcodes[$code] = $all;
-        $stats['with_postcode']++;
+        $postalCodes[$code] = $all;
+        $stats['with_postal_code']++;
         $stats[$t !== [] && $m !== [] ? 'both_sources' : ($t !== [] ? 'thailandpost_only' : 'mdes_only')]++;
         if ($t !== [] && $m !== []) {
             sort($t);
@@ -434,7 +488,7 @@ function joinPostcodes(array $areas, string $thailandPostPath, string $mdesPath)
         }
     }
 
-    return [$postcodes, $stats];
+    return [$postalCodes, $stats];
 }
 
 function norm(string $s, string $kind): string
@@ -524,7 +578,7 @@ function check(array $areas): array
     ];
 }
 
-/** @param array<array-key, list<mixed>> $rows */
+/** @param array<array-key, array<string, mixed>> $rows */
 function writePhp(string $path, array $rows): void
 {
     $lines = ["<?php\n", "// Generated by tools/generate.php from the sources in data/sources.json. Do not edit.\n", "return [\n"];
@@ -537,7 +591,15 @@ function writePhp(string $path, array $rows): void
 
 function literal(mixed $value): string
 {
-    return is_array($value) ? '[' . implode(',', array_map('literal', $value)) . ']' : var_export($value, true);
+    if (!is_array($value)) {
+        return var_export($value, true);
+    }
+    $parts = [];
+    foreach ($value as $key => $item) {
+        $parts[] = (array_is_list($value) ? '' : var_export($key, true) . '=>') . literal($item);
+    }
+
+    return '[' . implode(',', $parts) . ']';
 }
 
 function out(string $line): void

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Farzai\ThailandAddress;
 
 /**
- * Thailand's provinces, districts and subdistricts, with their postcodes.
+ * Thailand's provinces, districts and subdistricts, with their postal codes.
  *
  * The data is loaded on first use and shared by every instance in the process.
  * It is read-only, so instances are cheap.
@@ -24,25 +24,25 @@ final class Thailand
     /** @var array<string, list<string>>|null child codes by parent code */
     private static ?array $children = null;
 
-    /** @var array<string, list<string>>|null subdistrict codes by postcode */
-    private static ?array $byPostcode = null;
+    /** @var array<string, list<string>>|null subdistrict codes by postal code */
+    private static ?array $byPostalCode = null;
 
     /** @return Collection<Province> */
     public function provinces(): Collection
     {
-        return self::$provinces ??= self::load('provinces.php', static fn (string $code, array $row): Province => new Province($code, $row[0], $row[1]));
+        return self::$provinces ??= self::load('provinces.php', static fn (string $code, array $row): Province => new Province($code, $row['name_th'], $row['name_en'], $row['iso_code']));
     }
 
     /** @return Collection<District> */
     public function districts(): Collection
     {
-        return self::$districts ??= self::load('districts.php', static fn (string $code, array $row): District => new District($code, $row[0], $row[1], substr($code, 0, 2)));
+        return self::$districts ??= self::load('districts.php', static fn (string $code, array $row): District => new District($code, $row['name_th'], $row['name_en'], substr($code, 0, 2)));
     }
 
     /** @return Collection<Subdistrict> */
     public function subdistricts(): Collection
     {
-        return self::$subdistricts ??= self::load('subdistricts.php', static fn (string $code, array $row): Subdistrict => new Subdistrict($code, $row[0], $row[1], substr($code, 0, 4), substr($code, 0, 2), $row[2]));
+        return self::$subdistricts ??= self::load('subdistricts.php', static fn (string $code, array $row): Subdistrict => new Subdistrict($code, $row['name_th'], $row['name_en'], substr($code, 0, 4), substr($code, 0, 2), $row['postal_codes']));
     }
 
     /** The province with this 2-digit code, or null. */
@@ -84,23 +84,48 @@ final class Thailand
     }
 
     /**
-     * The subdistricts a postcode serves; empty for an unknown postcode.
+     * The subdistricts a postal code serves; empty for an unknown postal code.
      *
      * @return Collection<Subdistrict>
      */
-    public function subdistrictsByPostcode(string $postcode): Collection
+    public function subdistrictsByPostalCode(string $postalCode): Collection
     {
-        if (self::$byPostcode === null) {
+        if (self::$byPostalCode === null) {
             $index = [];
             foreach ($this->subdistricts() as $subdistrict) {
-                foreach ($subdistrict->postcodes as $code) {
+                foreach ($subdistrict->postalCodes as $code) {
                     $index[$code][] = $subdistrict->code;
                 }
             }
-            self::$byPostcode = $index;
+            self::$byPostalCode = $index;
         }
 
-        return $this->pick($this->subdistricts(), self::$byPostcode[trim($postcode)] ?? []);
+        return $this->pick($this->subdistricts(), self::$byPostalCode[trim($postalCode)] ?? []);
+    }
+
+    /**
+     * The full address of a subdistrict, or null when there is no such
+     * subdistrict. Without $postalCode, the subdistrict's postal code is used
+     * when it has exactly one, and none is guessed when it has several.
+     *
+     * @throws \InvalidArgumentException when $postalCode does not serve the subdistrict
+     */
+    public function address(int|string $subdistrictCode, ?string $postalCode = null): ?Address
+    {
+        $subdistrict = $this->subdistrict($subdistrictCode);
+        if ($subdistrict === null) {
+            return null;
+        }
+        if ($postalCode !== null && !in_array($postalCode, $subdistrict->postalCodes, true)) {
+            throw new \InvalidArgumentException("Postal code {$postalCode} does not serve subdistrict {$subdistrict->code}");
+        }
+
+        return new Address(
+            $this->province($subdistrict->provinceCode) ?? throw new \LogicException("No province {$subdistrict->provinceCode}"),
+            $this->district($subdistrict->districtCode) ?? throw new \LogicException("No district {$subdistrict->districtCode}"),
+            $subdistrict,
+            $postalCode ?? (count($subdistrict->postalCodes) === 1 ? $subdistrict->postalCodes[0] : null),
+        );
     }
 
     /**
@@ -144,12 +169,12 @@ final class Thailand
 
     /**
      * @template T of Area
-     * @param callable(string, array<int, mixed>): T $make
+     * @param callable(string, array<string, mixed>): T $make
      * @return Collection<T>
      */
     private static function load(string $file, callable $make): Collection
     {
-        /** @var array<array-key, array<int, mixed>> $rows */
+        /** @var array<array-key, array<string, mixed>> $rows */
         $rows = require dirname(__DIR__) . '/data/' . $file;
         $items = [];
         foreach ($rows as $code => $row) {

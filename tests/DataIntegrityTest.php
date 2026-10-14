@@ -94,21 +94,32 @@ final class DataIntegrityTest extends TestCase
         }
     }
 
+    /** ISO 3166-2:TH, from the iso-codes release pinned in data/sources.json. */
+    public function test_every_province_has_its_iso_3166_2_code(): void
+    {
+        $seen = [];
+        foreach ($this->th->provinces() as $province) {
+            $this->assertSame('TH-' . $province->code, $province->isoCode);
+            $seen[$province->isoCode] = true;
+        }
+        $this->assertCount(77, $seen);
+    }
+
     public function test_galyani_vadhana_is_a_chiang_mai_district(): void
     {
         $this->assertSame('50', $this->th->district('5025')?->provinceCode);
         $this->assertCount(25, $this->th->districtsOf('50'));
     }
 
-    public function test_postcodes_are_five_digit_lists(): void
+    public function test_postal_codes_are_five_digit_lists(): void
     {
         $withPostcode = 0;
         foreach ($this->th->subdistricts() as $s) {
-            $this->assertIsList($s->postcodes);
-            foreach ($s->postcodes as $postcode) {
-                $this->assertMatchesRegularExpression('/^\d{5}$/', $postcode, $s->code);
+            $this->assertIsList($s->postalCodes);
+            foreach ($s->postalCodes as $postalCode) {
+                $this->assertMatchesRegularExpression('/^\d{5}$/', $postalCode, $s->code);
             }
-            $withPostcode += $s->postcodes === [] ? 0 : 1;
+            $withPostcode += $s->postalCodes === [] ? 0 : 1;
         }
         $this->assertGreaterThanOrEqual(7300, $withPostcode);
     }

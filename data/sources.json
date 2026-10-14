@@ -31,8 +31,8 @@
             "bytes": 1707323,
             "sha256": "ccbff60f99e4d8b9a3202e8495d81e4a88092004bfdeee8ea0bb6159fbcbcb8d",
             "licence": null,
-            "licence_note": "No licence is stated. Terms: https://postbase.thailandpost.co.th/th/terms-and-conditions. Thailand Post is the authority on postcodes.",
-            "used_for": "postcodes, joined by subdistrict code"
+            "licence_note": "No licence is stated. Terms: https://postbase.thailandpost.co.th/th/terms-and-conditions. Thailand Post is the authority on postal codes.",
+            "used_for": "postal codes, joined by subdistrict code"
         },
         "mdes_postoffice": {
             "name": "สถานที่ทำการไปรษณีย์ (post offices)",
@@ -47,7 +47,22 @@
             "sha256": "2efec3bfc8955d59f62a621fe5326b9801261db0daa15ea876d199b11a7acc8b",
             "licence": "Creative Commons Attributions (version not stated)",
             "licence_note": "Attribution: MDES, dataset \"สถานที่ทำการไปรษณีย์\" on data.go.th.",
-            "used_for": "postcodes, joined by province / district / subdistrict name"
+            "used_for": "postal codes, joined by province / district / subdistrict name"
+        },
+        "iso_3166_2": {
+            "name": "iso-codes iso_3166-2.json (ISO 3166-2 subdivision codes)",
+            "publisher": "Debian iso-codes project, from the ISO 3166 Maintenance Agency's published codes",
+            "url": "https://salsa.debian.org/iso-codes-team/iso-codes/-/raw/v4.20.1/data/iso_3166-2.json",
+            "landing_page": "https://salsa.debian.org/iso-codes-team/iso-codes",
+            "method": "GET",
+            "fetched_at": "2026-10-14T08:20:14Z",
+            "http_last_modified": null,
+            "http_etag": "W/\"fbffbe3c69b915ad1093545358650827-gzip\"",
+            "bytes": 498028,
+            "sha256": "78c90ef7fc25b5c2631aac5f089bc9ff6ec22c025c05b6ddbc087a1f1be2e46a",
+            "licence": "LGPL-2.1-or-later (the iso-codes package); the codes themselves are ISO 3166-2:TH",
+            "licence_note": "Only the 77 province codes (TH-10 ... TH-96) are used. TH-S (Pattaya) has no DOPA province code and is not mapped.",
+            "used_for": "iso_code of each province"
         }
     },
     "counts": {
@@ -55,14 +70,14 @@
         "districts": 928,
         "subdistricts": 7436
     },
-    "postcodes": {
+    "postal_codes": {
         "subdistricts": 7436,
-        "with_postcode": 7386,
+        "with_postal_code": 7386,
         "both_sources": 4110,
         "thailandpost_only": 3224,
         "mdes_only": 52,
         "sources_disagree": 92,
-        "without_postcode": 50,
+        "without_postal_code": 50,
         "thailandpost_withheld_name_mismatch": 18,
         "mdes_rows_unmatched": 125
     }
