@@ -52,3 +52,19 @@ test('the skip looks for an open pull request, not for a leftover branch', funct
     $this->assertStringContainsString('gh pr list --head "data/$target" --state open', $import);
     $this->assertStringNotContainsString('git ls-remote', $import);
 });
+
+test('the data files are handed on before any third-party code runs, and tests.log apart', function () {
+    $import = updateDataJobs()['jobs']['import'];
+    $data = strpos($import, 'name: import-data-${{ github.run_id }}');
+    $this->assertNotFalse($data, 'a data-only artifact');
+    $this->assertLessThan(strpos($import, 'composer update'), $data, 'uploaded before Composer runs');
+    $this->assertLessThan(strpos($import, 'vendor/bin/pest'), $data);
+    $this->assertStringContainsString('name: import-tests-${{ github.run_id }}', $import);
+});
+
+test('the write job takes the data only from the data artifact and checks its grammar first', function () {
+    $pr = updateDataJobs()['jobs']['open-pr'];
+    $this->assertStringContainsString('name: import-data-${{ github.run_id }}', $pr);
+    $this->assertStringContainsString('tools/check-data-grammar.sh', $pr);
+    $this->assertLessThan(strpos($pr, 'git add --'), strpos($pr, 'tools/check-data-grammar.sh'));
+});

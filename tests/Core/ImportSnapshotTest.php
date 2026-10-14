@@ -173,6 +173,8 @@ test('a row of the wrong shape stops the import before anything is written', fun
     'a subdistrict with no Thai name' => ['subdistricts.json', fn (array $r) => [['name' => ['th' => '', 'en' => null]] + $r[0], ...array_slice($r, 1)], 'subdistricts.json'],
     'an English name that is not a string' => ['subdistricts.json', fn (array $r) => [['name' => ['th' => 'x', 'en' => ['x']]] + $r[0], ...array_slice($r, 1)], 'subdistricts.json'],
     'a postal code that is not five digits' => ['postal_codes.json', fn (array $r) => [['postal_code' => '1020'] + $r[0], ...array_slice($r, 1)], 'postal_codes.json'],
+    'a postal code with a trailing newline' => ['postal_codes.json', fn (array $r) => [['postal_code' => "10200\n"] + $r[0], ...array_slice($r, 1)], 'postal_codes.json'],
+    'a subdistrict code with a trailing newline' => ['subdistricts.json', fn (array $r) => [['code' => "100101\n"] + $r[0], ...array_slice($r, 1)], 'subdistricts.json'],
     'an unknown status' => ['postal_codes.json', fn (array $r) => [['status' => 'gone'] + $r[0], ...array_slice($r, 1)], 'postal_codes.json'],
     'an unknown district kind' => ['districts.json', fn (array $r) => [['kind' => 'county'] + $r[0], ...array_slice($r, 1)], 'districts.json'],
 ]);
@@ -189,4 +191,15 @@ test('the pull request body escapes everything that comes from changes.json', fu
     $this->assertStringNotContainsString('`x`', $summary);
     $row = array_values(array_filter(explode("\n", $summary), fn (string $l) => str_starts_with($l, '| subdistrict')))[0];
     $this->assertSame(6, substr_count(str_replace('\\|', '', $row), '|'), 'a | in the data does not add a table column');
+});
+
+test('what the importer writes passes the grammar check open-pr runs before committing', function () {
+    $id = '2026-11-01';
+    writeSnapshot($this->cdn, $id, [], ['subdistricts.json' => envelopeJson($id, [
+        area(['code' => '500101', 'district_code' => '5001', 'province_code' => '50', 'name' => ['th' => "ศรี'ภูมิ \\ x", 'en' => "Si Phum's"], 'kind' => 'tambon']),
+    ])]);
+    importSnapshot($this->base, null, $this->root);
+    $files = array_map(fn ($f) => escapeshellarg("{$this->root}/data/{$f}.php"), ['provinces', 'districts', 'subdistricts']);
+    exec('bash ' . escapeshellarg(dirname(__DIR__, 2) . '/tools/check-data-grammar.sh') . ' ' . implode(' ', $files) . ' 2>&1', $out, $code);
+    expect($code)->toBe(0, implode("\n", $out));
 });

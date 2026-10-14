@@ -225,16 +225,16 @@ function validRows(string $file, mixed $rows): array
         in_array($r['status'] ?? null, ['active', 'abolished'], true) || $bad('status is not active or abolished');
         in_array($r['kind'] ?? null, $kinds[$file], true) || $bad('unknown kind');
         if ($file === 'postal_codes') {
-            is_string($r['postal_code'] ?? null) && preg_match('/^\d{5}$/', $r['postal_code']) === 1 || $bad('postal_code is not five digits');
-            is_string($r['subdistrict_code'] ?? null) && preg_match('/^\d{6}$/', $r['subdistrict_code']) === 1 || $bad('subdistrict_code is not six digits');
+            is_string($r['postal_code'] ?? null) && preg_match('/^\d{5}\z/', $r['postal_code']) === 1 || $bad('postal_code is not five digits');
+            is_string($r['subdistrict_code'] ?? null) && preg_match('/^\d{6}\z/', $r['subdistrict_code']) === 1 || $bad('subdistrict_code is not six digits');
             continue;
         }
-        is_string($r['code'] ?? null) && preg_match('/^\d{' . $codeLength[$file] . '}$/', $r['code']) === 1 || $bad("code is not {$codeLength[$file]} digits");
+        is_string($r['code'] ?? null) && preg_match('/^\d{' . $codeLength[$file] . '}\z/', $r['code']) === 1 || $bad("code is not {$codeLength[$file]} digits");
         is_string($r['name']['th'] ?? null) && trim($r['name']['th']) !== '' || $bad('no Thai name');
         $en = $r['name']['en'] ?? null;
         $en === null || is_string($en) || $bad('name.en is not a string or null');
         if ($file === 'provinces') {
-            is_string($r['iso_code'] ?? null) && preg_match('/^TH-[0-9A-Z]{1,3}$/', $r['iso_code']) === 1 || $bad('iso_code is not TH-');
+            is_string($r['iso_code'] ?? null) && preg_match('/^TH-[0-9A-Z]{1,3}\z/', $r['iso_code']) === 1 || $bad('iso_code is not TH-');
         }
     }
 
@@ -267,12 +267,12 @@ function secureUrl(string $url): bool
 
 function validSnapshotId(string $id): bool
 {
-    return preg_match('/^\d{4}-\d{2}-\d{2}(\.[1-9]\d*)?$/', $id) === 1;
+    return preg_match('/^\d{4}-\d{2}-\d{2}(\.[1-9]\d*)?\z/', $id) === 1;
 }
 
 function majorOne(string $version): bool
 {
-    return preg_match('/^1\.\d+\.\d+$/', $version) === 1;
+    return preg_match('/^1\.\d+\.\d+\z/', $version) === 1;
 }
 
 /** @param array<array-key, array<string, mixed>> $rows */
