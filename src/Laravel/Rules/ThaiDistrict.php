@@ -24,7 +24,11 @@ final class ThaiDistrict extends AreaRule
         if ($district === null) {
             return 'district';
         }
-        $province = $this->repository()->province(self::code($this->parentValue($data, $attribute)));
+        $parent = $this->parentValue($data, $attribute, $unresolved);
+        if ($unresolved) {
+            return 'district_in_province';
+        }
+        $province = $this->repository()->province(self::code($parent));
 
         return $province !== null && $province->code !== $district->provinceCode ? 'district_in_province' : null;
     }

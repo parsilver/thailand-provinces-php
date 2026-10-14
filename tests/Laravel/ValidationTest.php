@@ -140,3 +140,72 @@ test('non scalar values fail cleanly', function () {
     $validator = Validator::make(['province' => ['10']], ['province' => 'thai_province']);
     $this->assertSame(['The province must be a valid Thai province code.'], $validator->errors()->get('province'));
 });
+
+/*
+ * #20: Laravel escapes a dot inside an array key with a placeholder, then hands
+ * an object rule the unescaped attribute ("addresses.a.b.district") and the
+ * escaped data. Splitting the attribute on "." paired the wildcard with "a",
+ * found no parent, and passed. Every parent-aware rule must still check the
+ * row it belongs to, whatever its key.
+ */
+dataset('row keys', [
+    'numeric key' => ['0'],
+    'dotted key' => ['a.b'],
+    'two dots' => ['x.y.z'],
+]);
+
+/** @return array<string, array<string, list<mixed>|string>> */
+function wildcardRules(): array
+{
+    return [
+        'object' => [
+            'addresses.*.district' => [Rule::thaiDistrict()->inProvince('addresses.*.province')],
+            'addresses.*.subdistrict' => [Rule::thaiSubdistrict()->inDistrict('addresses.*.district')],
+            'addresses.*.postal_code' => [Rule::thaiPostalCode()->forSubdistrict('addresses.*.subdistrict')],
+        ],
+        'string' => [
+            'addresses.*.district' => 'thai_district:addresses.*.province',
+            'addresses.*.subdistrict' => 'thai_subdistrict:addresses.*.district',
+            'addresses.*.postal_code' => 'thai_postal_code:addresses.*.subdistrict',
+        ],
+    ];
+}
+
+test('a wildcard parent is checked whatever the row key', function (string $style, string $key) {
+    // Each level is a real code that does not belong to its parent.
+    $bad = Validator::make(['addresses' => [$key => ['province' => '10', 'district' => '5001']]], [
+        'addresses.*.district' => wildcardRules()[$style]['addresses.*.district'],
+    ]);
+    $this->assertTrue($bad->fails(), "district 5001 passed under province 10 with row key {$key}");
+    $this->assertSame(
+        ["The addresses.{$key}.district is not in the selected addresses.{$key}.province."],
+        $bad->errors()->first("addresses.{$key}.district") === '' ? [] : [$bad->errors()->first("addresses.{$key}.district")],
+    );
+
+    $bad = Validator::make(['addresses' => [$key => ['district' => '1001', 'subdistrict' => '500101']]], [
+        'addresses.*.subdistrict' => wildcardRules()[$style]['addresses.*.subdistrict'],
+    ]);
+    $this->assertTrue($bad->fails(), "subdistrict 500101 passed under district 1001 with row key {$key}");
+
+    $bad = Validator::make(['addresses' => [$key => ['subdistrict' => '100101', 'postal_code' => '50200']]], [
+        'addresses.*.postal_code' => wildcardRules()[$style]['addresses.*.postal_code'],
+    ]);
+    $this->assertTrue($bad->fails(), "postal code 50200 passed for subdistrict 100101 with row key {$key}");
+
+    $good = Validator::make(['addresses' => [$key => VALID]], wildcardRules()[$style]);
+    $this->assertSame([], $good->errors()->toArray(), "a consistent address failed with row key {$key}");
+})->with('rule styles')->with('row keys');
+
+test('a wildcard parent that cannot be found fails closed', function (string $style) {
+    // No province in the row at all: the district cannot be checked against it.
+    $validator = Validator::make(['addresses' => [['district' => '5001']]], [
+        'addresses.*.district' => wildcardRules()[$style]['addresses.*.district'],
+    ]);
+    $this->assertTrue($validator->fails());
+
+    // A present but empty parent still defers to the parent's own rule.
+    $validator = Validator::make(['addresses' => [['province' => '', 'district' => '5001']]], [
+        'addresses.*.district' => wildcardRules()[$style]['addresses.*.district'],
+    ]);
+    $this->assertFalse($validator->fails());
+})->with('rule styles');
