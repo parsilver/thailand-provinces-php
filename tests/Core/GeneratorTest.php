@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Farzai\ThailandAddress\Tests;
+namespace Farzai\ThailandAddress\Tests\Core;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -12,7 +12,7 @@ final class GeneratorTest extends TestCase
 {
     public static function setUpBeforeClass(): void
     {
-        require_once dirname(__DIR__) . '/tools/generate.php';
+        require_once dirname(__DIR__, 2) . '/tools/generate.php';
     }
 
     /** @return iterable<array{string, string, float}> */
@@ -30,31 +30,31 @@ final class GeneratorTest extends TestCase
     #[DataProvider('ratios')]
     public function test_similarity_matches_difflib(string $a, string $b, float $expected): void
     {
-        $this->assertEqualsWithDelta($expected, \similarity($a, $b), 0.000001);
+        $this->assertEqualsWithDelta($expected, \Farzai\ThailandAddress\Tools\similarity($a, $b), 0.000001);
     }
 
     public function test_reads_the_dopa_as_of_date(): void
     {
-        $this->assertSame('2023-09-01', \thaiDate('ข้อมูล ณ วันที่ 1 กันยายน 2566'));
-        $this->assertNull(\thaiDate('no date here'));
+        $this->assertSame('2023-09-01', \Farzai\ThailandAddress\Tools\thaiDate('ข้อมูล ณ วันที่ 1 กันยายน 2566'));
+        $this->assertNull(\Farzai\ThailandAddress\Tools\thaiDate('no date here'));
     }
 
     public function test_normalises_names_for_the_mdes_join(): void
     {
-        $this->assertSame('กรุงเทพมหานคร', \norm('กรุงเทพฯ', 'province'));
-        $this->assertSame('ชลบุรี', \norm('จังหวัด ชลบุรี', 'province'));
-        $this->assertSame('พระนคร', \norm('เขตพระนคร', 'district'));
-        $this->assertSame('บางปู', \norm('ตำบลบางปู*', 'subdistrict'));
+        $this->assertSame('กรุงเทพมหานคร', \Farzai\ThailandAddress\Tools\norm('กรุงเทพฯ', 'province'));
+        $this->assertSame('ชลบุรี', \Farzai\ThailandAddress\Tools\norm('จังหวัด ชลบุรี', 'province'));
+        $this->assertSame('พระนคร', \Farzai\ThailandAddress\Tools\norm('เขตพระนคร', 'district'));
+        $this->assertSame('บางปู', \Farzai\ThailandAddress\Tools\norm('ตำบลบางปู*', 'subdistrict'));
     }
 
     public function test_cleans_whitespace(): void
     {
-        $this->assertSame('Khet Nong Chok', \clean("  Khet  Nong\tChok \u{200B}"));
+        $this->assertSame('Khet Nong Chok', \Farzai\ThailandAddress\Tools\clean("  Khet  Nong\tChok \u{200B}"));
     }
 
     public function test_thailand_post_payload_decodes_back_to_the_request(): void
     {
-        $payload = \thailandPostPayload(['flag' => '0']);
+        $payload = \Farzai\ThailandAddress\Tools\thailandPostPayload(['flag' => '0']);
         [$body, $map] = explode(',', $payload);
         $chunks = [];
         $offset = 0;

@@ -1,19 +1,27 @@
-# Thailand provinces, districts, subdistricts and postal codes (PHP)
+# Thai address data for PHP and Laravel
 
 [![tests](https://github.com/parsilver/thailand-provinces-php/actions/workflows/tests.yml/badge.svg)](https://github.com/parsilver/thailand-provinces-php/actions/workflows/tests.yml)
 
 ข้อมูลจังหวัด อำเภอ/เขต ตำบล/แขวง และรหัสไปรษณีย์ของประเทศไทย จากแหล่งข้อมูลทางการ
-(กรมการปกครอง, ไปรษณีย์ไทย, กระทรวงดิจิทัลฯ) พร้อมสคริปต์สร้างข้อมูลใหม่ได้เอง
+(กรมการปกครอง, ไปรษณีย์ไทย, กระทรวงดิจิทัลฯ) ใช้กับ Laravel ได้ทันที หรือใช้กับ PHP ธรรมดาก็ได้
 
 Thailand's 77 provinces, 928 districts (amphoe and Bangkok khet) and 7,436
 subdistricts (tambon and Bangkok khwaeng), keyed by their DOPA codes, with Thai
-and English names, ISO 3166-2 province codes and postal codes. Every row comes from an official source pinned
-in [`data/sources.json`](data/sources.json), and `tools/generate.php` rebuilds it.
+and English names, ISO 3166-2 province codes and postal codes. Every row comes
+from an official source pinned in [`data/sources.json`](data/sources.json), and
+`tools/generate.php` rebuilds it.
+
+- An API that reads like Laravel: Laravel collections, lazy relations
+  (`$subdistrict->district->province`), `*OrFail` lookups.
+- Validation rules, including "this district is in that province".
+- Eloquent casts that store a code and give you the model.
+- Works in plain PHP too; Laravel is optional.
 
 ## Requirements
 
 - PHP 8.2 or newer, with `ext-mbstring`
-- No framework
+- `illuminate/collections` 12 or 13, installed with the package
+- Laravel 12 or 13 for the Laravel integration (optional)
 
 ## Install
 
@@ -21,66 +29,174 @@ in [`data/sources.json`](data/sources.json), and `tools/generate.php` rebuilds i
 composer require farzai/thailand-address
 ```
 
-## Usage
+In Laravel, package discovery registers the service provider and the
+`ThailandAddress` facade alias. Nothing needs publishing.
+
+## Laravel
+
+### Validation
+
+Validate a Thai address form with rule objects:
+
+```php
+use Illuminate\Validation\Rule;
+
+$request->validate([
+    'province'    => ['required', Rule::thaiProvince()],
+    'district'    => ['required', Rule::thaiDistrict()->inProvince('province')],
+    'subdistrict' => ['required', Rule::thaiSubdistrict()->inDistrict('district')],
+    'postal_code' => ['required', Rule::thaiPostalCode()->forSubdistrict('subdistrict')],
+]);
+```
+
+String rules do the same checks:
+
+```php
+$request->validate([
+    'province'    => 'required|thai_province',
+    'district'    => 'required|thai_district:province',
+    'subdistrict' => 'required|thai_subdistrict:district',
+    'postal_code' => 'required|thai_postal_code:subdistrict',
+]);
+```
+
+| Rule | Passes when |
+|---|---|
+| `thai_province` | the value is a province code, e.g. `10` |
+| `thai_district`, `thai_district:field` | the value is a district code, e.g. `1001`, in the province given in `field` |
+| `thai_subdistrict`, `thai_subdistrict:field` | the value is a subdistrict code, e.g. `100101`, in the district given in `field` |
+| `thai_postal_code`, `thai_postal_code:field` | the value is a Thai postal code, and it serves the subdistrict given in `field` |
+
+- **One error per mistake.** A parent check passes when the parent field is
+  empty or invalid; that field's own rule reports it, so the user sees one error.
+- **Arrays work.** Wildcards pair by position:
+  `'addresses.*.district' => 'thai_district:addresses.*.province'`.
+- **No postal code data.** A subdistrict with no known postal code accepts any
+  valid Thai postal code.
+- **Rule classes.** They are also usable directly, without the macros:
+  `ThaiProvince::make()`, `ThaiDistrict::make()->inProvince('province')`, and
+  so on, under `Farzai\ThailandAddress\Laravel\Rules`.
+
+Messages come in English and Thai, under `thailand-address::validation`.
+Publish them to change the wording:
+
+```sh
+php artisan vendor:publish --tag=thailand-address-lang
+```
+
+A message you define for a string rule in your own `lang/*/validation.php`, or
+pass to the validator, takes precedence. It can use `:other` for the parent
+field's name.
+
+### Eloquent casts
+
+```php
+use Farzai\ThailandAddress\Laravel\Casts\AsDistrict;
+use Farzai\ThailandAddress\Laravel\Casts\AsProvince;
+use Farzai\ThailandAddress\Laravel\Casts\AsSubdistrict;
+
+class Customer extends Model
+{
+    protected function casts(): array
+    {
+        return [
+            'province_code'    => AsProvince::class,
+            'district_code'    => AsDistrict::class,
+            'subdistrict_code' => AsSubdistrict::class,
+        ];
+    }
+}
+
+$customer->subdistrict_code = '100101';             // or a Subdistrict, or 100101
+$customer->subdistrict_code->district->province->nameTh; // 'กรุงเทพมหานคร'
+```
+
+- **Storage.** The column stores the code as a string. Reading it back gives
+  the model.
+- **Unknown codes.** Setting or reading an unknown code throws
+  `NotFoundException`, as Laravel's enum casts do.
+- **Wrong level.** Setting a model of the wrong level throws
+  `InvalidArgumentException`.
+
+### Facade and injection
+
+```php
+use Farzai\ThailandAddress\AddressRepository;
+use Farzai\ThailandAddress\Laravel\Facades\ThailandAddress;
+
+ThailandAddress::province('10');
+
+public function __construct(private AddressRepository $addresses) {}
+```
+
+The container holds one `AddressRepository`. The `ThailandAddress` facade and
+the framework-agnostic `Thailand` class below both use it.
+
+## Plain PHP (and everything else)
 
 ```php
 use Farzai\ThailandAddress\Thailand;
 
-$th = new Thailand();
+Thailand::provinces();                          // Collection<Province>, 77 items
+Thailand::province('10');                       // ?Province, by DOPA code
+Thailand::provinceOrFail('10');                 // Province, or NotFoundException
+Thailand::provinces()->firstWhere('nameEn', 'Bangkok');
 
-// Find by DOPA code. A code that does not exist returns null.
-$bangkok = $th->province('10');          // Province, or null
-$bangkok->nameTh;                        // 'กรุงเทพมหานคร'
-$bangkok->nameEn;                        // 'Bangkok'
-$bangkok->isoCode;                       // 'TH-10' (ISO 3166-2:TH)
+Thailand::province('10')->districts();          // Collection<District>
+Thailand::province('10')->subdistricts();       // every subdistrict in Bangkok
+Thailand::district('1001')->subdistricts();     // Collection<Subdistrict>
 
-$khet = $th->district('1001');           // District 'เขตพระนคร'
-$khet->provinceCode;                     // '10'
+$s = Thailand::subdistrict('100101');
+$s->nameTh;                                     // 'พระบรมมหาราชวัง'
+$s->district->province->nameTh;                 // 'กรุงเทพมหานคร' (lazy relations)
+$s->postalCodes;                                // ['10200']
 
-$khwaeng = $th->subdistrict('100101');   // Subdistrict 'พระบรมมหาราชวัง'
-$khwaeng->districtCode;                  // '1001'
-$khwaeng->provinceCode;                  // '10'
-$khwaeng->postalCodes;                   // ['10200']
+Thailand::postalCode('10200');                  // Collection<Subdistrict>
+Thailand::search('บางรัก');                      // Thai or English names, every level
 
-$th->province('99');                     // null
-
-// Children of a parent, by code or by object.
-$th->districtsOf('38');                  // the 8 districts of Bueng Kan
-$th->subdistrictsOf($khet);              // the 12 khwaeng of Phra Nakhon
-
-// Search by Thai or English name: a case-insensitive "contains" match.
-$th->provinces()->search('เชียง');        // Chiang Mai, Chiang Rai
-$th->districts()->search('bueng kan');
-
-// Every subdistrict a postal code serves.
-$th->subdistrictsByPostalCode('10200');
-
-// A full address, with the libaddressinput / CLDR field names.
-$address = $th->address('100101');      // Address, or null
-$address->toArray();                     // Thai names
-// ['countryCode' => 'TH', 'administrativeArea' => 'กรุงเทพมหานคร',
-//  'locality' => 'เขตพระนคร', 'dependentLocality' => 'พระบรมมหาราชวัง',
-//  'postalCode' => '10200']
-$address->toArray('en');                 // English names
-$th->address('100101', '10200');         // choose among several postal codes
-
-// Collections are countable, iterable and JSON-serialisable.
-count($th->subdistricts());              // 7436
-foreach ($th->districtsOf('10') as $district) {
-    echo $district->code, ' ', $district->nameTh, PHP_EOL;
-}
-$th->districtsOf('38')->find('3801');    // District, or null
-$th->provinces()->first();
-$th->provinces()->all();                 // list<Province>
-$th->provinces()->codes();               // ['10', '11', ...]
-$th->provinces()->filter(fn ($p) => str_starts_with($p->code, '1'));
-json_encode($th->districtsOf('38'), JSON_UNESCAPED_UNICODE);
+$address = $s->toAddress();                     // Address
+$address->administrativeArea;                   // 'กรุงเทพมหานคร'
+$address->locality;                             // 'เขตพระนคร'
+$address->dependentLocality;                    // 'พระบรมมหาราชวัง'
+$address->postalCode;                           // '10200'
+$address->countryCode;                          // 'TH'
+$address->inLocale('en')->toArray();            // the same, with English names
 ```
+
+- **Collections.** They are Laravel collections (`Illuminate\Support\Collection`),
+  so `where`, `firstWhere`, `pluck`, `map`, `sortBy` and the rest work as in
+  Laravel.
+- **Indexing.** Collections are list-indexed, so JSON gives an array.
+- **Models.** `Province`, `District` and `Subdistrict` are read-only, and
+  implement `Arrayable` and `JsonSerializable`.
+- **Lookups.** Every lookup takes a code as a string or an int. A miss gives
+  `null`, or an empty collection.
+- **Loading.** The data loads on first use, once per process.
+
+### Testing with a fake
+
+`Thailand` is a static facade over an `AddressRepository`. Swap in a small fake:
+
+```php
+use Farzai\ThailandAddress\AddressRepository;
+use Farzai\ThailandAddress\Thailand;
+
+Thailand::swap(AddressRepository::fromArrays(
+    ['99' => ['name_th' => 'ทดสอบ', 'name_en' => 'Test', 'iso_code' => 'TH-99']],
+    ['9901' => ['name_th' => 'เมืองทดสอบ', 'name_en' => 'Mueang Test']],
+    ['990101' => ['name_th' => 'ในเมือง', 'name_en' => 'Nai Mueang', 'postal_codes' => ['99000']]],
+));
+
+Thailand::swap(null); // back to the real data
+```
+
+In Laravel, `ThailandAddress::swap($fake)` (or binding the fake to
+`AddressRepository::class`) is enough: `Thailand`, the facade, the validation
+rules and the casts all read the container's repository.
 
 ### Codes
 
-The codes are DOPA's administrative codes, as strings. Integers are accepted
-on input.
+The codes are DOPA's administrative codes, as strings:
 
 | Level | Example | Digits |
 |---|---|---|
@@ -91,7 +207,7 @@ on input.
 DOPA publishes 8-digit codes (`PPAATTMM`). The package uses the first 6, which
 are the province, district and subdistrict.
 
-### Names and standards
+## Names and standards
 
 | This package | DOPA (Thai) | ISO 3166-2:TH | libaddressinput / CLDR | schema.org `PostalAddress` |
 |---|---|---|---|---|
@@ -112,7 +228,7 @@ are the province, district and subdistrict.
 - ISO 3166-2 also lists `TH-S` (Pattaya, a special administrative city). DOPA
   counts Pattaya as part of Chon Buri (`TH-20`), so it has no `Province` here.
 
-### Postal codes
+## Postal codes
 
 - A subdistrict can have more than one postal code, and one postal code can
   serve many subdistricts, so `postalCodes` is a list of strings.
@@ -120,7 +236,7 @@ are the province, district and subdistrict.
   an empty list because neither source covers them.
 - For 92 subdistricts the two sources disagree, and the list holds the postal
   codes from both.
-- `address()` fills `postalCode` only when the subdistrict has exactly one, or
+- `toAddress()` fills `postalCode` only when the subdistrict has exactly one, or
   when you pass one it has; it never guesses among several.
 - Thailand Post is the authority on postal codes. Check with it before relying
   on a postal code for something that matters.
@@ -194,13 +310,13 @@ composer require farzai/thailand-address
 
 | 1.x | 2.0 |
 |---|---|
-| `PA\ProvinceTh\Factory::province()` | `(new Farzai\ThailandAddress\Thailand())->provinces()` |
-| `Factory::amphure()` | `$th->districts()` |
-| `Factory::district()` (tambon) | `$th->subdistricts()` |
+| `PA\ProvinceTh\Factory::province()` | `Thailand::provinces()` |
+| `Factory::amphure()` | `Thailand::districts()` |
+| `Factory::district()` (tambon) | `Thailand::subdistricts()` |
 | `Factory::geography()` | removed (regions are not in the official sources) |
-| `->find(1)` with a row id | `$th->province('10')` with the DOPA code |
+| `->find(1)` with a row id | `Thailand::province('10')` with the DOPA code |
 | `find()` returning the whole table on a miss | `null` |
-| `->amphures()`, `->districts()` | `$th->districtsOf($code)`, `$th->subdistrictsOf($code)` |
+| `->amphures()`, `->districts()` | `$province->districts()`, `$district->subdistricts()` |
 | `zip_code` (one string) | `postalCodes` (a list) |
 | `Factory::amphure()` / `amphures()` names | `District`, `districts()`: no Thai transliterations in the API |
 | `name_th`, `name_en` array keys | `nameTh`, `nameEn` properties; `toArray()` keeps `name_th`, `name_en` |
@@ -215,10 +331,20 @@ What else changed:
 - **The data was regenerated from the official sources.** Abolished areas are
   gone, Bueng Kan's districts appear once under code 38, and the missing Bangkok
   khwaeng and Chiang Mai's Galyani Vadhana district are present.
-- **Requirements:** PHP 8.2 or newer.
+- **Requirements:** PHP 8.2 or newer. Laravel 12 or 13 for the Laravel
+  integration. Laravel 10 and 11 are not supported: they are end-of-life, and
+  Composer refuses to install them because of open security advisories.
 
 `parsilver/thailand-provinces-php` is frozen at 1.0.3 and gets no further
 releases. The source of both lives in this repository.
+
+## Not in 2.0
+
+These may come later. They are not in this release:
+
+- Database migrations and seeders for the address tables
+- Livewire or Blade components for cascading province / district / subdistrict
+  dropdowns
 
 ## Development
 

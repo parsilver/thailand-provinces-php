@@ -27,6 +27,11 @@
 
 declare(strict_types=1);
 
+// Namespaced so its helpers cannot collide with a framework's global ones.
+namespace Farzai\ThailandAddress\Tools;
+
+use ZipArchive;
+
 const USER_AGENT = 'farzai/thailand-address data generator (+https://github.com/parsilver/thailand-provinces-php)';
 const MIN_GAP_SECONDS = 2.0;
 

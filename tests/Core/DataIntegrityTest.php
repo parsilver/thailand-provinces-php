@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Farzai\ThailandAddress\Tests;
+namespace Farzai\ThailandAddress\Tests\Core;
 
-use Farzai\ThailandAddress\Thailand;
+use Farzai\ThailandAddress\AddressRepository;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -13,11 +13,11 @@ use PHPUnit\Framework\TestCase;
  */
 final class DataIntegrityTest extends TestCase
 {
-    private Thailand $th;
+    private AddressRepository $th;
 
     protected function setUp(): void
     {
-        $this->th = new Thailand();
+        $this->th = new AddressRepository();
     }
 
     public function test_row_counts_per_level(): void
@@ -37,6 +37,7 @@ final class DataIntegrityTest extends TestCase
             $khwaeng += count($this->th->subdistrictsOf($khet));
         }
         $this->assertSame(180, $khwaeng);
+        $this->assertCount(180, $this->th->province('10')->subdistricts());
     }
 
     public function test_bueng_kan_is_code_38_with_its_own_districts_only(): void
@@ -49,7 +50,7 @@ final class DataIntegrityTest extends TestCase
         $this->assertSame('บึงกาฬ', $this->th->subdistrict('380101')?->nameTh);
 
         // #7: no second copy of a Bueng Kan district under a missing province.
-        $this->assertCount(1, $this->th->districts()->filter(fn ($d) => $d->nameTh === 'เซกา'));
+        $this->assertCount(1, $this->th->districts()->where('nameTh', 'เซกา'));
     }
 
     public function test_every_child_has_an_existing_parent(): void
@@ -80,7 +81,7 @@ final class DataIntegrityTest extends TestCase
 
     public function test_names_are_clean_and_complete(): void
     {
-        $all = [...$this->th->provinces(), ...$this->th->districts(), ...$this->th->subdistricts()];
+        $all = $this->th->provinces()->concat($this->th->districts())->concat($this->th->subdistricts());
         foreach ($all as $row) {
             foreach ([$row->nameTh, $row->nameEn] as $name) {
                 $this->assertNotSame('', $name, "empty name on {$row->code}");

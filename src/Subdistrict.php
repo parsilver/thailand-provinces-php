@@ -10,11 +10,15 @@ namespace Farzai\ThailandAddress;
  *
  * A subdistrict can have more than one postal code, and one postal code can
  * serve many subdistricts. The list is empty where no source covers it.
+ *
+ * @property-read District $district
+ * @property-read Province $province
  */
-final class Subdistrict extends Area
+final class Subdistrict extends Model
 {
     /** @param list<string> $postalCodes */
     public function __construct(
+        AddressRepository $repository,
         string $code,
         string $nameTh,
         string $nameEn,
@@ -22,7 +26,40 @@ final class Subdistrict extends Area
         public readonly string $provinceCode,
         public readonly array $postalCodes,
     ) {
-        parent::__construct($code, $nameTh, $nameEn);
+        parent::__construct($repository, $code, $nameTh, $nameEn);
+    }
+
+    public function district(): District
+    {
+        return $this->repository->districtOrFail($this->districtCode);
+    }
+
+    public function province(): Province
+    {
+        return $this->repository->provinceOrFail($this->provinceCode);
+    }
+
+    /**
+     * This subdistrict as a full address. Without $postalCode, the postal code
+     * is filled only when the subdistrict has exactly one; none is guessed
+     * among several.
+     *
+     * @param 'th'|'en' $locale
+     * @throws \InvalidArgumentException when $postalCode does not serve this subdistrict
+     */
+    public function toAddress(?string $postalCode = null, string $locale = 'th'): Address
+    {
+        if ($postalCode !== null && !in_array($postalCode, $this->postalCodes, true)) {
+            throw new \InvalidArgumentException("Postal code {$postalCode} does not serve subdistrict {$this->code}");
+        }
+
+        return new Address(
+            $this->province(),
+            $this->district(),
+            $this,
+            $postalCode ?? (count($this->postalCodes) === 1 ? $this->postalCodes[0] : null),
+            $locale,
+        );
     }
 
     /** @return array{code: string, name_th: string, name_en: string, district_code: string, province_code: string, postal_codes: list<string>} */
@@ -36,5 +73,10 @@ final class Subdistrict extends Area
             'province_code' => $this->provinceCode,
             'postal_codes' => $this->postalCodes,
         ];
+    }
+
+    protected function relations(): array
+    {
+        return ['district', 'province'];
     }
 }

@@ -9,14 +9,18 @@ A rewrite. See "Upgrading from 1.x" in the README.
 - The Composer package is now `farzai/thailand-address`.
   `parsilver/thailand-provinces-php` (1.x) is abandoned in its favour. The
   repository stays at github.com/parsilver/thailand-provinces-php.
-- New API under `Farzai\ThailandAddress`. `Thailand` is the entry point, with
-  read-only `Province`, `District` and `Subdistrict` value objects and a
-  countable, iterable `Collection`.
+- New API under `Farzai\ThailandAddress`, in the style of Laravel:
+  - `Thailand` is a static facade over an injectable `AddressRepository`.
+  - It returns Laravel collections of read-only `Province`, `District` and
+    `Subdistrict` models.
+  - Models have lazy relations (`$subdistrict->district->province`) and
+    `*OrFail` lookups that throw `NotFoundException`.
+  - It works in plain PHP, with `illuminate/collections` as its one dependency.
 - Areas are keyed by DOPA code (`10`, `1001`, `100101`), not by row id.
 - A subdistrict has a list of `postalCodes` instead of one `zip_code`.
 - Standard names throughout: Province, District, Subdistrict (Bangkok khet
   and khwaeng are District and Subdistrict), `postalCodes`, and `isoCode`.
-- PHP 8.2 or newer is required.
+- PHP 8.2 or newer is required; `illuminate/collections` 12 or 13.
 
 ### Data
 
@@ -40,10 +44,17 @@ A rewrite. See "Upgrading from 1.x" in the README.
 
 ### Added
 
+- Laravel 12 and 13 integration, auto-discovered:
+  - a service provider with a singleton repository, and the `ThailandAddress`
+    facade;
+  - validation rules as objects (`Rule::thaiDistrict()->inProvince('province')`)
+    and as strings (`thai_district:province`), with English and Thai messages;
+  - Eloquent casts `AsProvince`, `AsDistrict` and `AsSubdistrict`.
+- `Thailand::search()` across every level, and `Thailand::postalCode()`.
 - `Province::$isoCode` (ISO 3166-2:TH, e.g. `TH-10`).
-- `Thailand::address()` and `Address`, whose `toArray()` uses the
-  libaddressinput / CLDR names (`administrativeArea`, `locality`,
-  `dependentLocality`, `postalCode`, `countryCode`).
+- `Subdistrict::toAddress()` and `Address`, which use the libaddressinput /
+  CLDR names (`administrativeArea`, `locality`, `dependentLocality`,
+  `postalCode`, `countryCode`).
 - `tools/generate.php` rebuilds the data from the sources (#8).
 - CI on PHP 8.2 to 8.5, plus a check that the dist excludes dev files (#14).
 - A LICENSE file, and a `.gitattributes` that keeps tests and tools out of

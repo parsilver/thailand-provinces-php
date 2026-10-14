@@ -1,7 +1,18 @@
 {
     "name": "farzai/thailand-address",
-    "description": "Thai provinces, districts (amphoe/khet), subdistricts (tambon/khwaeng) and postcodes from official sources",
-    "keywords": ["thailand", "province", "amphoe", "tambon", "khet", "khwaeng", "postcode", "address", "dopa"],
+    "description": "Thai provinces, districts and subdistricts with postal codes and ISO 3166-2 codes, from official sources. Plain PHP, with first-class Laravel support.",
+    "keywords": [
+        "thailand",
+        "province",
+        "district",
+        "subdistrict",
+        "postal-code",
+        "address",
+        "dopa",
+        "iso-3166-2",
+        "laravel",
+        "validation"
+    ],
     "type": "library",
     "license": "MIT",
     "authors": [
@@ -12,10 +23,16 @@
     ],
     "require": {
         "php": "^8.2",
-        "ext-mbstring": "*"
+        "ext-mbstring": "*",
+        "illuminate/collections": "^12.0|^13.0",
+        "illuminate/contracts": "^12.0|^13.0"
     },
     "require-dev": {
-        "phpunit/phpunit": "^11.5"
+        "orchestra/testbench": "^10.0|^11.0",
+        "phpunit/phpunit": "^11.5|^12.0"
+    },
+    "suggest": {
+        "laravel/framework": "Service provider, facade, validation rules and Eloquent casts are discovered automatically"
     },
     "autoload": {
         "psr-4": {
@@ -25,6 +42,16 @@
     "autoload-dev": {
         "psr-4": {
             "Farzai\\ThailandAddress\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Farzai\\ThailandAddress\\Laravel\\ThailandAddressServiceProvider"
+            ],
+            "aliases": {
+                "ThailandAddress": "Farzai\\ThailandAddress\\Laravel\\Facades\\ThailandAddress"
+            }
         }
     },
     "scripts": {
