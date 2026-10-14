@@ -1,22 +1,59 @@
-name: Test
+name: tests
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   tests:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
-        php: [ '7.2', '7.3', '7.4', '8.0', '8.1' ]
-    name: PHP ${{ matrix.php }}
+        php: ['8.2', '8.3', '8.4', '8.5']
+        laravel: ['12', '13']
+        exclude:
+          - php: '8.2'
+            laravel: '13'
+    name: PHP ${{ matrix.php }}, Laravel ${{ matrix.laravel }}
     steps:
-      - uses: actions/checkout@v2
-      - name: Install Composer
-        run: composer install
-      - name: Run Tests
-        run: composer test
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring
+          coverage: none
+      - run: composer validate --strict
+      - name: Pin Laravel ${{ matrix.laravel }}
+        run: |
+          composer require --no-update "illuminate/collections:^${{ matrix.laravel }}.0" "illuminate/contracts:^${{ matrix.laravel }}.0"
+          composer require --dev --no-update "orchestra/testbench:^$(( ${{ matrix.laravel }} - 2 )).0"
+      - run: composer update --no-interaction --no-progress
+      # Pest is not pinned: each cell gets the newest major its PHP and Laravel
+      # allow (3, 4 or 5). Print what resolved, so the run records it.
+      - name: Resolved versions
+        run: |
+          for p in pestphp/pest phpunit/phpunit laravel/framework; do
+            echo "$p $(composer show "$p" | grep -E '^versions' | sed 's/^versions : \* //')"
+          done
+      - run: vendor/bin/pest
+
+  dist:
+    runs-on: ubuntu-latest
+    name: Dist contents and size
+    steps:
+      - uses: actions/checkout@v4
+      - name: The dist ships only the library, its data and docs (#11)
+        run: |
+          git archive --format=tar HEAD > dist.tar
+          tar -tf dist.tar | sort
+          if tar -tf dist.tar | grep -E '^(tools|tests|\.github)/'; then
+            echo "dev-only files in the dist"; exit 1
+          fi
+          size=$(wc -c < dist.tar)
+          echo "dist tar: ${size} bytes"
+          test "$size" -lt 2000000

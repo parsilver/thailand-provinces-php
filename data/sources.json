@@ -1,0 +1,84 @@
+{
+    "sources": {
+        "dopa_ccaatt": {
+            "name": "DOPA ทำเนียบท้องที่ (ccaatt)",
+            "publisher": "Department of Provincial Administration (DOPA), Ministry of Interior",
+            "url": "https://stat.bora.dopa.go.th/dload/ccaatt.xlsx",
+            "landing_page": "https://stat.bora.dopa.go.th/dload/fccaa.htm",
+            "method": "GET",
+            "fetched_at": "2026-10-14T08:14:00Z",
+            "http_last_modified": "Mon, 02 Oct 2023 04:39:26 GMT",
+            "http_etag": "\"5b663-606b45beb5216\"",
+            "bytes": 374371,
+            "sha256": "5977e39e689d229668dabb2ff47f1a1a4bec341bd1efa0792cb45cad8e16d6e9",
+            "licence": null,
+            "licence_note": "No licence is stated on the download page (checked 2026-10-14). Published government record data.",
+            "used_for": "codes, Thai names, English names",
+            "data_as_of": {
+                "text": "ข้อมูล ณ วันที่ 1 กันยายน 2566",
+                "date": "2023-09-01"
+            }
+        },
+        "thailandpost_subdistricts": {
+            "name": "Thailand Post track web: getSubdistrict",
+            "publisher": "Thailand Post Co., Ltd.",
+            "url": "https://trackweb.thailandpost.co.th/post/api/web/getSubdistrict",
+            "landing_page": "https://track.thailandpost.co.th/",
+            "method": "POST",
+            "fetched_at": "2026-10-14T08:14:03Z",
+            "http_last_modified": null,
+            "http_etag": null,
+            "bytes": 1707323,
+            "sha256": "ccbff60f99e4d8b9a3202e8495d81e4a88092004bfdeee8ea0bb6159fbcbcb8d",
+            "licence": null,
+            "licence_note": "No licence is stated. Terms: https://postbase.thailandpost.co.th/th/terms-and-conditions. Thailand Post is the authority on postal codes.",
+            "used_for": "postal codes, joined by subdistrict code"
+        },
+        "mdes_postoffice": {
+            "name": "สถานที่ทำการไปรษณีย์ (post offices)",
+            "publisher": "Office of the Permanent Secretary, Ministry of Digital Economy and Society (MDES)",
+            "url": "https://datacatalog.mdes.go.th/dataset/2b4e942c-0ef2-4892-93b8-d9b5600efe0f/resource/415ea0b4-2966-40e3-a66d-ed9f92f46343/download/postal-2026.06.30.csv",
+            "landing_page": "https://data.go.th/dataset/postoffice1",
+            "method": "GET",
+            "fetched_at": "2026-10-14T08:14:06Z",
+            "http_last_modified": "Sat, 01 Aug 2026 16:52:24 GMT",
+            "http_etag": "\"1785603144.329265-1452548-1021121905\"",
+            "bytes": 1452548,
+            "sha256": "2efec3bfc8955d59f62a621fe5326b9801261db0daa15ea876d199b11a7acc8b",
+            "licence": "Creative Commons Attributions (version not stated)",
+            "licence_note": "Attribution: MDES, dataset \"สถานที่ทำการไปรษณีย์\" on data.go.th.",
+            "used_for": "postal codes, joined by province / district / subdistrict name"
+        },
+        "iso_3166_2": {
+            "name": "iso-codes iso_3166-2.json (ISO 3166-2 subdivision codes)",
+            "publisher": "Debian iso-codes project, from the ISO 3166 Maintenance Agency's published codes",
+            "url": "https://salsa.debian.org/iso-codes-team/iso-codes/-/raw/v4.20.1/data/iso_3166-2.json",
+            "landing_page": "https://salsa.debian.org/iso-codes-team/iso-codes",
+            "method": "GET",
+            "fetched_at": "2026-10-14T08:20:14Z",
+            "http_last_modified": null,
+            "http_etag": "W/\"fbffbe3c69b915ad1093545358650827-gzip\"",
+            "bytes": 498028,
+            "sha256": "78c90ef7fc25b5c2631aac5f089bc9ff6ec22c025c05b6ddbc087a1f1be2e46a",
+            "licence": "LGPL-2.1-or-later (the iso-codes package); the codes themselves are ISO 3166-2:TH",
+            "licence_note": "Only the 77 province codes (TH-10 ... TH-96) are used. TH-S (Pattaya) has no DOPA province code and is not mapped.",
+            "used_for": "iso_code of each province"
+        }
+    },
+    "counts": {
+        "provinces": 77,
+        "districts": 928,
+        "subdistricts": 7436
+    },
+    "postal_codes": {
+        "subdistricts": 7436,
+        "with_postal_code": 7386,
+        "both_sources": 4110,
+        "thailandpost_only": 3224,
+        "mdes_only": 52,
+        "sources_disagree": 92,
+        "without_postal_code": 50,
+        "thailandpost_withheld_name_mismatch": 18,
+        "mdes_rows_unmatched": 125
+    }
+}
