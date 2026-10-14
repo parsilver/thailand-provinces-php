@@ -33,7 +33,11 @@ jobs:
           composer require --no-update "illuminate/collections:^${{ matrix.laravel }}.0" "illuminate/contracts:^${{ matrix.laravel }}.0"
           composer require --dev --no-update "orchestra/testbench:^$(( ${{ matrix.laravel }} - 2 )).0"
       - run: composer update --no-interaction --no-progress
-      - run: vendor/bin/phpunit
+      # Pest is not pinned: each cell gets the newest major its PHP and Laravel
+      # allow (3, 4 or 5). Print what resolved, so the run records it.
+      - name: Resolved versions
+        run: composer show pestphp/pest phpunit/phpunit laravel/framework | grep -E '^(name|versions)'
+      - run: vendor/bin/pest
 
   dist:
     runs-on: ubuntu-latest

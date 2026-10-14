@@ -358,8 +358,23 @@ These may come later. They are not in this release:
 
 ```sh
 composer install
-composer test
+composer test      # vendor/bin/pest
 ```
+
+### Testing
+
+- **Tests are written in [Pest](https://pestphp.com).** `tests/Core` covers
+  the plain-PHP API, the data and the generator's helpers. `tests/Laravel`
+  boots a Testbench application through `uses(...)->in('Laravel')` in
+  `tests/Pest.php`.
+- **Pest versions.** `require-dev` allows Pest 3, 4 and 5, so Composer
+  installs the newest one your PHP can run: Pest 5 needs PHP 8.4, Pest 4 needs
+  PHP 8.3, and Pest 3 runs on 8.2. The tests use only what the three share
+  (`test()`, `uses()`, `beforeEach()`, `afterEach()`, `dataset()`,
+  `->with()`), so they run unchanged on each.
+- **CI.** CI runs PHP 8.2 to 8.5 against Laravel 12 and 13, prints the Pest
+  version each job resolved, and checks that the dist excludes `tests/` and
+  `tools/`.
 
 ## License
 
