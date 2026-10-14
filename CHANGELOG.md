@@ -1,6 +1,28 @@
 # Changelog
 
-## 2.0.1 (unreleased)
+## 2.0.2 (unreleased)
+
+### Fixed
+
+- Postal codes from another province's postal area are no longer shipped
+  (#19). The generator joins two sources, and a code only one of them gave
+  is now dropped when its first two digits are not a postal area both sources
+  agree on in that province. This removed 10 invalid codes from 10
+  subdistricts, among them `73697` for Sung Noen, Buri Ram, which validation
+  accepted and `Thailand::postalCode('73697')` returned. No subdistrict lost
+  its only code. Each affected subdistrict now has one code again, so
+  `toAddress()` fills `postalCode` for it.
+- Three real cross-province codes, each a post office in the neighbouring
+  province, are kept on an allowlist with the evidence from both sources.
+
+### Added
+
+- A data test that every postal code belongs to its subdistrict's province,
+  and pinned known codes.
+- `tools/review/postal-codes.csv`: every subdistrict where the two sources
+  disagree, and every code dropped, for a person to read on a refresh.
+
+## 2.0.1 (2026-10-14)
 
 ### Fixed
 

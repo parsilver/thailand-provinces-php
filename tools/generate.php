@@ -83,6 +83,20 @@ const SOURCES = [
 ];
 
 /**
+ * Single-source postal codes outside their province's postal area that are
+ * real, kept by joinPostalCodes against its prefix rule (#19). Subdistrict
+ * code => postal code => the evidence, from the two cached sources:
+ * Thailand Post lists the code for the subdistrict, and MDES lists that code
+ * as a post office in the neighbouring province. Add an entry only with the
+ * same two pieces of evidence.
+ */
+const CROSS_PROVINCE_POSTAL_CODES = [
+    '160104' => ['13240' => 'Kong Thanu, Lop Buri: Thailand Post 13240; MDES 13240 = Ban Phraek post office (Ban Phraek, Ayutthaya), which also serves the 5 Ban Phraek subdistricts'],
+    '210310' => ['22160' => 'Kong Din, Rayong: Thailand Post 22160; MDES 22160 = Na Yai Am post office (Na Yai Am, Chanthaburi)'],
+    '710515' => ['70190' => 'Sanam Yae, Kanchanaburi: Thailand Post 70190; MDES 70190 = Huai Krabok post office (Krap Yai, Ban Pong, Ratchaburi)'],
+];
+
+/**
  * ISO 3166-2 names that are a different romanisation of the same province than
  * DOPA's English name. Every other pair must be at least 80% similar.
  */
@@ -121,7 +135,7 @@ function main(array $args): void
     }
 
     [$asOf, $areas] = readDopa("{$cacheDir}/" . SOURCES['dopa_ccaatt']['file']);
-    [$postalCodes, $postalCodeStats] = joinPostalCodes(
+    [$postalCodes, $postalCodeStats, $postalCodeReview] = joinPostalCodes(
         $areas,
         "{$cacheDir}/" . SOURCES['thailandpost_subdistricts']['file'],
         "{$cacheDir}/" . SOURCES['mdes_postoffice']['file'],
@@ -142,6 +156,7 @@ function main(array $args): void
         $rows[$code] = ['name_th' => $a['th'], 'name_en' => $a['en'], 'postal_codes' => $postalCodes[$code] ?? []];
     }
     writePhp("{$root}/data/subdistricts.php", $rows);
+    writeReview("{$root}/tools/review/postal-codes.csv", $postalCodeReview);
 
     $manifest = ['sources' => []];
     foreach (SOURCES as $id => $source) {
@@ -426,8 +441,17 @@ function isoCodes(array $provinces, string $path): array
  * Postal codes per subdistrict code: Thailand Post joined by code (when its
  * name agrees with DOPA's), MDES joined by normalised names, the union of both.
  *
+ * A code only one source gives is dropped when its first two digits are not a
+ * postal area that both sources agree on anywhere in the same province, unless
+ * CROSS_PROVINCE_POSTAL_CODES vouches for it (#19). Each source has typos the
+ * other does not (MDES gave Sung Noen, Buri Ram, 73697 next to 31160), and the
+ * union used to ship them as valid codes.
+ *
+ * Also returns the rows a person should look at on a refresh: every subdistrict
+ * where the sources disagree, and every code dropped.
+ *
  * @param array{province: array<string, array{th: string, en: string}>, district: array<string, array{th: string, en: string}>, subdistrict: array<string, array{th: string, en: string}>} $areas
- * @return array{array<string, list<string>>, array<string, int>}
+ * @return array{array<string, list<string>>, array<string, int>, list<array<string, string>>}
  */
 function joinPostalCodes(array $areas, string $thailandPostPath, string $mdesPath): array
 {
@@ -483,29 +507,102 @@ function joinPostalCodes(array $areas, string $thailandPostPath, string $mdesPat
     }
     fclose($handle);
 
+    // The postal areas (first two digits) each province is known to use: those
+    // of codes both sources give for one of its subdistricts.
+    $areasOf = [];
+    foreach ($tp as $code => $zips) {
+        foreach (array_keys($zips) as $zip) {
+            if (isset($mdes[$code][$zip])) {
+                $areasOf[substr((string) $code, 0, 2)][substr((string) $zip, 0, 2)] = true;
+            }
+        }
+    }
+
     $postalCodes = [];
-    $stats = ['subdistricts' => count($areas['subdistrict']), 'with_postal_code' => 0, 'both_sources' => 0, 'thailandpost_only' => 0, 'mdes_only' => 0, 'sources_disagree' => 0, 'without_postal_code' => 0, 'thailandpost_withheld_name_mismatch' => $withheld, 'mdes_rows_unmatched' => $unmatched];
+    $review = [];
+    $stats = ['subdistricts' => count($areas['subdistrict']), 'with_postal_code' => 0, 'both_sources' => 0, 'thailandpost_only' => 0, 'mdes_only' => 0, 'sources_disagree' => 0, 'without_postal_code' => 0, 'thailandpost_withheld_name_mismatch' => $withheld, 'mdes_rows_unmatched' => $unmatched, 'dropped_outside_province' => 0, 'left_without_postal_code_by_drop' => 0];
+    $vouched = 0;
     foreach (array_keys($areas['subdistrict']) as $code) {
         $code = (string) $code;
-        $t = array_keys($tp[$code] ?? []);
-        $m = array_keys($mdes[$code] ?? []);
+        $t = array_map('strval', array_keys($tp[$code] ?? []));
+        $m = array_map('strval', array_keys($mdes[$code] ?? []));
+        $dropped = [];
+        $keep = function (string $zip, array $other) use ($code, $areasOf, &$dropped, &$vouched): bool {
+            if (in_array($zip, $other, true) || isset($areasOf[substr($code, 0, 2)][substr($zip, 0, 2)])) {
+                return true;
+            }
+            if (isset(CROSS_PROVINCE_POSTAL_CODES[$code][$zip])) {
+                $vouched++;
+
+                return true;
+            }
+            $dropped[] = $zip;
+
+            return false;
+        };
+        [$t, $m] = [
+            array_values(array_filter($t, fn (string $zip) => $keep($zip, $m))),
+            array_values(array_filter($m, fn (string $zip) => $keep($zip, $t))),
+        ];
+        $stats['dropped_outside_province'] += count($dropped);
         if ($t === [] && $m === []) {
             $stats['without_postal_code']++;
+            $stats['left_without_postal_code_by_drop'] += $dropped === [] ? 0 : 1;
+            $dropped === [] || $review[] = reviewRow($areas, $code, $t, $m, $dropped);
             continue;
         }
-        $all = array_map('strval', array_unique([...$t, ...$m]));
+        $all = array_unique([...$t, ...$m]);
         sort($all, SORT_STRING);
         $postalCodes[$code] = $all;
         $stats['with_postal_code']++;
         $stats[$t !== [] && $m !== [] ? 'both_sources' : ($t !== [] ? 'thailandpost_only' : 'mdes_only')]++;
+        $disagree = false;
         if ($t !== [] && $m !== []) {
             sort($t);
             sort($m);
-            $stats['sources_disagree'] += $t != $m ? 1 : 0;
+            $disagree = $t != $m;
+            $stats['sources_disagree'] += $disagree ? 1 : 0;
+        }
+        if ($disagree || $dropped !== []) {
+            $review[] = reviewRow($areas, $code, $t, $m, $dropped);
         }
     }
+    $vouched === count(CROSS_PROVINCE_POSTAL_CODES)
+        || out('NOTE: only ' . $vouched . ' of ' . count(CROSS_PROVINCE_POSTAL_CODES) . ' CROSS_PROVINCE_POSTAL_CODES entries were needed; prune the stale ones.');
 
-    return [$postalCodes, $stats];
+    return [$postalCodes, $stats, $review];
+}
+
+/**
+ * @param array{province: array<string, array{th: string, en: string}>, district: array<string, array{th: string, en: string}>, subdistrict: array<string, array{th: string, en: string}>} $areas
+ * @param list<string> $t
+ * @param list<string> $m
+ * @param list<string> $dropped
+ * @return array<string, string>
+ */
+function reviewRow(array $areas, string $code, array $t, array $m, array $dropped): array
+{
+    return [
+        'subdistrict_code' => $code,
+        'subdistrict' => $areas['subdistrict'][$code]['th'],
+        'district' => $areas['district'][substr($code, 0, 4)]['th'],
+        'province' => $areas['province'][substr($code, 0, 2)]['th'],
+        'thailandpost' => implode(' ', $t),
+        'mdes' => implode(' ', $m),
+        'dropped_outside_province' => implode(' ', $dropped),
+    ];
+}
+
+/** @param list<array<string, string>> $rows */
+function writeReview(string $path, array $rows): void
+{
+    is_dir(dirname($path)) || mkdir(dirname($path), 0o777, true) || fail('cannot create ' . dirname($path));
+    $handle = fopen($path, 'w');
+    fputcsv($handle, ['subdistrict_code', 'subdistrict', 'district', 'province', 'thailandpost', 'mdes', 'dropped_outside_province'], escape: '\\');
+    foreach ($rows as $row) {
+        fputcsv($handle, array_values($row), escape: '\\');
+    }
+    fclose($handle);
 }
 
 function norm(string $s, string $kind): string

@@ -110,3 +110,77 @@ test('postal codes are five digit lists', function () {
     }
     $this->assertGreaterThanOrEqual(7300, $withPostcode);
 });
+
+/*
+ * #19: every shipped postal code belongs to its subdistrict's province.
+ *
+ * A Thai postal code's first two digits name a province's postal area. They
+ * are not the DOPA code (Samut Prakan, DOPA 11, delivers on 10xxx). The main
+ * prefix of each province below is the one both sources agree on for most of
+ * its subdistricts. The few real cross-province codes, where a post office in
+ * the next province delivers, are listed one by one. A refresh that brings in
+ * a code outside both fails here instead of shipping, as 73697 for 310304
+ * did in 2.0.0 and 2.0.1.
+ */
+const POSTAL_PREFIX_BY_PROVINCE = [
+    '10' => '10', '11' => '10', '12' => '11', '13' => '12', '14' => '13', '15' => '14', '16' => '15',
+    '17' => '16', '18' => '17', '19' => '18', '20' => '20', '21' => '21', '22' => '22', '23' => '23',
+    '24' => '24', '25' => '25', '26' => '26', '27' => '27', '30' => '30', '31' => '31', '32' => '32',
+    '33' => '33', '34' => '34', '35' => '35', '36' => '36', '37' => '37', '38' => '38', '39' => '39',
+    '40' => '40', '41' => '41', '42' => '42', '43' => '43', '44' => '44', '45' => '45', '46' => '46',
+    '47' => '47', '48' => '48', '49' => '49', '50' => '50', '51' => '51', '52' => '52', '53' => '53',
+    '54' => '54', '55' => '55', '56' => '56', '57' => '57', '58' => '58', '60' => '60', '61' => '61',
+    '62' => '62', '63' => '63', '64' => '64', '65' => '65', '66' => '66', '67' => '67', '70' => '70',
+    '71' => '71', '72' => '72', '73' => '73', '74' => '74', '75' => '75', '76' => '76', '77' => '77',
+    '80' => '80', '81' => '81', '82' => '82', '83' => '83', '84' => '84', '85' => '85', '86' => '86',
+    '90' => '90', '91' => '91', '92' => '92', '93' => '93', '94' => '94', '95' => '95', '96' => '96',
+];
+
+/** Subdistrict code => its cross-province postal code. */
+const CROSS_PROVINCE_POSTAL_CODES = [
+    // Both sources agree.
+    '160208' => '18220', // Huai Khun Ram, Lop Buri
+    '191105' => '30130', // Lam Somphung, Saraburi
+    '191107' => '30130', // Lam Phaya Klang, Saraburi
+    '300807' => '36220', // Ban Praeng, Nakhon Ratchasima
+    '300818' => '36220', // Nong Sai, Nakhon Ratchasima
+    '502501' => '58130', // Ban Chan, Chiang Mai
+    '810203' => '80240', // Sinpun, Krabi
+    '810206' => '80240', // Khok Han, Krabi
+    '820203' => '83000', // Phru Nai, Phang-nga
+    // Thailand Post only, kept because both sources put 58130 on 502501: the
+    // whole district's one post office is Pai 106 (Ban Chan), a 58130 office.
+    '502502' => '58130', // Mae Daet, Chiang Mai
+    '502503' => '58130', // Chaem Luang, Chiang Mai
+    // Thailand Post only, allowlisted in tools/generate.php with the evidence.
+    '160104' => '13240', // Kong Thanu, Lop Buri: Ban Phraek post office, Ayutthaya
+    '210310' => '22160', // Kong Din, Rayong: Na Yai Am post office, Chanthaburi
+    '710515' => '70190', // Sanam Yae, Kanchanaburi: Huai Krabok post office, Ratchaburi
+];
+
+test('every postal code belongs to its province', function () {
+    $this->assertCount(77, POSTAL_PREFIX_BY_PROVINCE);
+    $foreign = [];
+    foreach ($this->th->subdistricts() as $s) {
+        foreach ($s->postalCodes as $postalCode) {
+            if (substr($postalCode, 0, 2) !== POSTAL_PREFIX_BY_PROVINCE[$s->provinceCode]
+                && (CROSS_PROVINCE_POSTAL_CODES[$s->code] ?? null) !== $postalCode) {
+                $foreign[] = "{$s->code} {$s->nameTh}: {$postalCode}";
+            }
+        }
+    }
+    $this->assertSame([], $foreign, 'postal codes outside their province');
+});
+
+test('known postal codes', function (string $subdistrict, array $postalCodes) {
+    $this->assertSame($postalCodes, $this->th->subdistrict($subdistrict)?->postalCodes);
+    if (count($postalCodes) === 1) {
+        $this->assertSame($postalCodes[0], $this->th->subdistrict($subdistrict)->toAddress()->postalCode);
+    }
+})->with([
+    'Phra Borom Maha Ratchawang, Bangkok' => ['100101', ['10200']],
+    'Sung Noen, Buri Ram (was also 73697)' => ['310304', ['31160']],
+    'Ban Yuat, Udon Thani (was also 38974)' => ['412003', ['41260']],
+    'Song Phi Nong, Chumphon (was also 27408)' => ['860210', ['86140']],
+    'Kong Din, Rayong (cross-province, allowlisted)' => ['210310', ['22160']],
+]);
