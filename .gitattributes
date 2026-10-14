@@ -1,0 +1,10 @@
+# Keep the Composer dist to the library and its data (#11).
+/.github            export-ignore
+/tests              export-ignore
+/tools              export-ignore
+/.gitattributes     export-ignore
+/.gitignore         export-ignore
+/phpunit.xml.dist   export-ignore
+
+*.php text eol=lf
+*.json text eol=lf
