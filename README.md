@@ -177,8 +177,12 @@ $address->inLocale('en')->toArray();            // the same, with English names
 - **Loading.** Each level's data loads on first use, once per process: a
   province lookup reads only the 77 provinces, not the 7,436 subdistricts.
 - **Serializing.** A model serializes as its code (a few dozen bytes) and is
-  rebuilt through `Thailand::repository()` when read back, so models are safe
-  in queued jobs and caches. `var_dump()` shows the model's fields.
+  rebuilt through `Thailand::repository()` when read back, so a queued job or
+  a cache entry stays small. If the code no longer exists when the payload is
+  read back (DOPA abolished the area and the data was updated), unserializing
+  throws `NotFoundException`, naming the model class and the stale code. Store
+  the code instead of the model where a payload can outlive a data update.
+  `var_dump()` shows the model's fields.
 
 ### Testing with a fake
 

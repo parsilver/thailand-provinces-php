@@ -210,3 +210,42 @@ test('debug info is the model not the repository', function () {
     $this->assertTrue(method_exists(Thailand::province('38'), '__debugInfo'), 'var_dump/print_r would walk the whole repository');
     $this->assertSame(Thailand::province('38')->toArray(), Thailand::province('38')->__debugInfo());
 });
+
+/*
+ * A serialized model whose code is gone by the time it is read back (DOPA
+ * abolished the area and the data was refreshed under a queued job or a cache
+ * entry) cannot be rebuilt. It throws, and the message says which payload and
+ * which code, so the failed job or cache read can be traced.
+ */
+test('unserializing a model whose code no longer exists names the stale code', function () {
+    $bytes = str_replace('"100101"', '"999999"', serialize(Thailand::subdistrict('100101')));
+
+    try {
+        unserialize($bytes);
+        $this->fail('unserialize() rebuilt a subdistrict for a code that does not exist');
+    } catch (NotFoundException $e) {
+        $this->assertStringContainsString('999999', $e->getMessage());
+        $this->assertStringContainsString(Subdistrict::class, $e->getMessage());
+        $this->assertStringContainsString('serialized', $e->getMessage());
+        $this->assertInstanceOf(NotFoundException::class, $e->getPrevious());
+    }
+});
+
+/*
+ * Loading is per level: a province lookup must not read the 7,436
+ * subdistricts. Run in a child PHP process, so files other tests already
+ * required do not count.
+ */
+test('a province lookup loads the province data and not the subdistricts', function () {
+    $root = dirname(__DIR__, 2);
+    $script = 'require ' . var_export($root . '/vendor/autoload.php', true) . ';'
+        . ' Farzai\ThailandAddress\Thailand::province("10");'
+        . ' echo json_encode(array_values(array_map("basename", preg_grep("#/data/[a-z]+\\.php$#", get_included_files()))));';
+    $output = shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($script));
+    $loaded = json_decode((string) $output, true);
+
+    $this->assertIsArray($loaded, 'child process printed: ' . var_export($output, true));
+    $this->assertContains('provinces.php', $loaded);
+    $this->assertNotContains('subdistricts.php', $loaded);
+    $this->assertNotContains('districts.php', $loaded);
+});

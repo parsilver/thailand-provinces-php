@@ -82,11 +82,17 @@ abstract class Model implements Arrayable, Jsonable, \JsonSerializable
      * the repository in use when it is read back.
      *
      * @param array{code: string} $data
-     * @throws Exceptions\NotFoundException when that repository has no such code
+     * @throws Exceptions\NotFoundException when that repository has no such
+     *         code, naming the payload's class and the stale code
      */
     public function __unserialize(array $data): void
     {
-        $source = static::lookup(Thailand::repository(), (string) $data['code']);
+        $code = (string) $data['code'];
+        try {
+            $source = static::lookup(Thailand::repository(), $code);
+        } catch (Exceptions\NotFoundException $e) {
+            throw Exceptions\NotFoundException::staleSerialized(static::class, $code, $e);
+        }
         $this->repository = $source->repository;
         $this->code = $source->code;
         $this->nameTh = $source->nameTh;
