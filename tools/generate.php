@@ -27,7 +27,7 @@
 
 declare(strict_types=1);
 
-const USER_AGENT = 'parsilver/thailand-provinces-php data generator (+https://github.com/parsilver/thailand-provinces-php)';
+const USER_AGENT = 'farzai/thailand-address data generator (+https://github.com/parsilver/thailand-provinces-php)';
 const MIN_GAP_SECONDS = 2.0;
 
 const SOURCES = [

@@ -18,7 +18,7 @@ in [`data/sources.json`](data/sources.json), and `tools/generate.php` rebuilds i
 ## Install
 
 ```sh
-composer require parsilver/thailand-provinces-php:^2.0
+composer require farzai/thailand-address
 ```
 
 ## Usage
@@ -182,6 +182,14 @@ Suggested cadence: DOPA quarterly, and the postal code sources twice a year.
 
 ## Upgrading from 1.x
 
+The package has a new name. `parsilver/thailand-provinces-php` 1.x is
+abandoned in favour of `farzai/thailand-address`, which starts at 2.0:
+
+```sh
+composer remove parsilver/thailand-provinces-php
+composer require farzai/thailand-address
+```
+
 2.0 is a rewrite. Nothing from the 1.x API remains.
 
 | 1.x | 2.0 |
@@ -209,7 +217,8 @@ What else changed:
   khwaeng and Chiang Mai's Galyani Vadhana district are present.
 - **Requirements:** PHP 8.2 or newer.
 
-1.x is frozen at 1.0.3.
+`parsilver/thailand-provinces-php` is frozen at 1.0.3 and gets no further
+releases. The source of both lives in this repository.
 
 ## Development
 

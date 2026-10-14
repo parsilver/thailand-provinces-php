@@ -6,6 +6,9 @@ A rewrite. See "Upgrading from 1.x" in the README.
 
 ### Changed
 
+- The Composer package is now `farzai/thailand-address`.
+  `parsilver/thailand-provinces-php` (1.x) is abandoned in its favour. The
+  repository stays at github.com/parsilver/thailand-provinces-php.
 - New API under `Farzai\ThailandAddress`. `Thailand` is the entry point, with
   read-only `Province`, `District` and `Subdistrict` value objects and a
   countable, iterable `Collection`.
@@ -53,4 +56,4 @@ A rewrite. See "Upgrading from 1.x" in the README.
 
 ## 1.0.3
 
-Last 1.x release. 1.x is frozen.
+Last release of `parsilver/thailand-provinces-php`. 1.x is frozen.

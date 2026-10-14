@@ -1,5 +1,5 @@
 {
-    "name": "parsilver/thailand-provinces-php",
+    "name": "farzai/thailand-address",
     "description": "Thai provinces, districts (amphoe/khet), subdistricts (tambon/khwaeng) and postcodes from official sources",
     "keywords": ["thailand", "province", "amphoe", "tambon", "khet", "khwaeng", "postcode", "address", "dopa"],
     "type": "library",
