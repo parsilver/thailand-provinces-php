@@ -1,777 +1,287 @@
 <?php
 
-/**
- * Rebuilds data/*.php and data/sources.json from the official sources.
+/*
+ * Imports a published snapshot of the Thai address dataset into data/.
  *
- *   php tools/generate.php              use the cache, fetch what is missing
- *   php tools/generate.php --refresh    fetch every source again
- *   php tools/generate.php --offline    never touch the network
- *   php tools/generate.php --cache-dir=DIR
- *   php tools/generate.php --verify      check every source against the sha256
- *                                        in data/sources.json; data/ is not
- *                                        written. Checks the cached copies; add
- *                                        --refresh to check what the sources
- *                                        serve today (that re-fetches into
- *                                        tools/cache/).
+ *   php tools/generate.php                      the latest published snapshot
+ *   php tools/generate.php --snapshot=2026-11-01
+ *   php tools/generate.php --summary=pr.md      also write a change summary
  *
- * Sources (see README "Data sources"):
- *   - DOPA ทำเนียบท้องที่ ccaatt.xlsx: codes, Thai and English names.
- *   - Thailand Post getSubdistrict: one request listing every subdistrict
- *     code with its postal code.
- *   - MDES post-office CSV on data.go.th (CC Attribution): postal codes by
- *     province / district / subdistrict name.
- *   - Debian iso-codes (a tagged release): the ISO 3166-2:TH code of each
- *     province, joined by DOPA code and checked by name.
+ * The dataset (https://data.farzai.com/thailand-address/) is built from the
+ * official sources and published as immutable, versioned snapshots by the
+ * thailand-address-data pipeline, which fetches, joins and gates the sources.
+ * This library no longer fetches anything; it only imports.
  *
- * Politeness: an honest User-Agent, an on-disk cache so a source is fetched
- * once, at least 2 s between requests, at most 3 retries with backoff on 429 or
- * 5xx, and a hard stop on 401/403 or anything that looks like a block page.
- * Do not work around a stop; ask the publisher instead.
+ * Before anything is written:
+ * - the snapshot must be listed as published (not withdrawn) in
+ *   v1/snapshots.json;
+ * - its manifest must match the sha256 the index records;
+ * - every file must match its manifest entry;
+ * - every file must carry a schema v1 envelope for this snapshot;
+ * - every row the importer reads must have the shape it expects (digit codes
+ *   of the right length, five-digit postal codes, a Thai name, a known status
+ *   and kind), so a malformed file cannot reach data/.
  *
- * Needs ext-zip, ext-simplexml and ext-mbstring. Not shipped in the dist.
+ * Verified means self-consistent: the files agree with the index and the
+ * manifest. It does not prove the pipeline published them; that needs a trust
+ * anchor outside the bucket (follow-up issue on artifact attestation).
+ *
+ * data/ keeps the library's own shape: active areas only, and a Bangkok khet
+ * keeps the "เขต" the library has always shipped in name_th. Not shipped in
+ * the dist.
  */
 
 declare(strict_types=1);
 
 // Namespaced so its helpers cannot collide with a framework's global ones.
-namespace Farzai\ThailandAddress\Tools;
+namespace Farzai\ThailandAddress\Tools\Import;
 
-use ZipArchive;
-
-const USER_AGENT = 'farzai/thailand-address data generator (+https://github.com/parsilver/thailand-provinces-php)';
-const MIN_GAP_SECONDS = 2.0;
-
-const SOURCES = [
-    'dopa_ccaatt' => [
-        'name' => 'DOPA ทำเนียบท้องที่ (ccaatt)',
-        'publisher' => 'Department of Provincial Administration (DOPA), Ministry of Interior',
-        'url' => 'https://stat.bora.dopa.go.th/dload/ccaatt.xlsx',
-        'landing' => 'https://stat.bora.dopa.go.th/dload/fccaa.htm',
-        'method' => 'GET',
-        'file' => 'ccaatt.xlsx',
-        'licence' => null,
-        'licence_note' => 'No licence is stated on the download page (checked 2026-10-14). Published government record data.',
-        'used_for' => 'codes, Thai names, English names',
-    ],
-    'thailandpost_subdistricts' => [
-        'name' => 'Thailand Post track web: getSubdistrict',
-        'publisher' => 'Thailand Post Co., Ltd.',
-        'url' => 'https://trackweb.thailandpost.co.th/post/api/web/getSubdistrict',
-        'landing' => 'https://track.thailandpost.co.th/',
-        'method' => 'POST',
-        'file' => 'thailandpost-getSubdistrict.json',
-        'licence' => null,
-        'licence_note' => 'No licence is stated. Terms: https://postbase.thailandpost.co.th/th/terms-and-conditions. Thailand Post is the authority on postal codes.',
-        'used_for' => 'postal codes, joined by subdistrict code',
-    ],
-    'mdes_postoffice' => [
-        'name' => 'สถานที่ทำการไปรษณีย์ (post offices)',
-        'publisher' => 'Office of the Permanent Secretary, Ministry of Digital Economy and Society (MDES)',
-        'url' => 'https://datacatalog.mdes.go.th/dataset/2b4e942c-0ef2-4892-93b8-d9b5600efe0f/resource/415ea0b4-2966-40e3-a66d-ed9f92f46343/download/postal-2026.06.30.csv',
-        'landing' => 'https://data.go.th/dataset/postoffice1',
-        'method' => 'GET',
-        'file' => 'postal-2026.06.30.csv',
-        'licence' => 'Creative Commons Attributions (version not stated)',
-        'licence_note' => 'Attribution: MDES, dataset "สถานที่ทำการไปรษณีย์" on data.go.th.',
-        'used_for' => 'postal codes, joined by province / district / subdistrict name',
-    ],
-    'iso_3166_2' => [
-        'name' => 'iso-codes iso_3166-2.json (ISO 3166-2 subdivision codes)',
-        'publisher' => 'Debian iso-codes project, from the ISO 3166 Maintenance Agency\'s published codes',
-        'url' => 'https://salsa.debian.org/iso-codes-team/iso-codes/-/raw/v4.20.1/data/iso_3166-2.json',
-        'landing' => 'https://salsa.debian.org/iso-codes-team/iso-codes',
-        'method' => 'GET',
-        'file' => 'iso_3166-2.json',
-        'licence' => 'LGPL-2.1-or-later (the iso-codes package); the codes themselves are ISO 3166-2:TH',
-        'licence_note' => 'Only the 77 province codes (TH-10 ... TH-96) are used. TH-S (Pattaya) has no DOPA province code and is not mapped.',
-        'used_for' => 'iso_code of each province',
-    ],
-];
-
-/**
- * Single-source postal codes outside their province's postal area that are
- * real, kept by joinPostalCodes against its prefix rule (#19). Subdistrict
- * code => postal code => the evidence, from the two cached sources:
- * Thailand Post lists the code for the subdistrict, and MDES lists that code
- * as a post office in the neighbouring province. Add an entry only with the
- * same two pieces of evidence.
- */
-const CROSS_PROVINCE_POSTAL_CODES = [
-    '160104' => ['13240' => 'Kong Thanu, Lop Buri: Thailand Post 13240; MDES 13240 = Ban Phraek post office (Ban Phraek, Ayutthaya), which also serves the 5 Ban Phraek subdistricts'],
-    '210310' => ['22160' => 'Kong Din, Rayong: Thailand Post 22160; MDES 22160 = Na Yai Am post office (Na Yai Am, Chanthaburi)'],
-    '710515' => ['70190' => 'Sanam Yae, Kanchanaburi: Thailand Post 70190; MDES 70190 = Huai Krabok post office (Krap Yai, Ban Pong, Ratchaburi)'],
-];
-
-/**
- * ISO 3166-2 names that are a different romanisation of the same province than
- * DOPA's English name. Every other pair must be at least 80% similar.
- */
-const ISO_NAME_ALIASES = ['TH-10' => ['Bangkok', 'Krung Thep Maha Nakhon']];
+const DEFAULT_BASE = 'https://data.farzai.com';
+const PUBLIC_BASE = 'https://data.farzai.com';
 
 // Run only as a script, so the tests can load the functions.
 if (PHP_SAPI === 'cli' && realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
-    main(array_slice($argv, 1));
+    exit(main(array_slice($argv, 1)));
 }
 
 /** @param list<string> $args */
-function main(array $args): void
+function main(array $args): int
 {
-    $root = dirname(__DIR__);
-    $cacheDir = $root . '/tools/cache';
-    $mode = 'cache';
-    $verify = false;
+    $options = [];
     foreach ($args as $arg) {
-        if ($arg === '--refresh') {
-            $mode = 'refresh';
-        } elseif ($arg === '--offline') {
-            $mode = 'offline';
-        } elseif ($arg === '--verify') {
-            $verify = true;
-        } elseif (str_starts_with($arg, '--cache-dir=')) {
-            $cacheDir = rtrim(substr($arg, 12), '/');
-        } else {
-            fail("unknown argument {$arg}");
+        if (!preg_match('/^--(snapshot|base|summary)=(.*)$/', $arg, $m)) {
+            fwrite(STDERR, "unknown argument {$arg}\n");
+
+            return 2;
+        }
+        $options[$m[1]] = $m[2];
+    }
+    try {
+        $result = importSnapshot($options['base'] ?? DEFAULT_BASE, $options['snapshot'] ?? null, dirname(__DIR__));
+    } catch (\Throwable $e) {
+        fwrite(STDERR, 'FAILED: ' . $e->getMessage() . "\n");
+
+        return 1;
+    }
+    if (isset($options['summary'])) {
+        file_put_contents($options['summary'], $result['summary']);
+    }
+    fwrite(STDERR, "imported snapshot {$result['snapshot']} into data/\n");
+    echo $result['snapshot'], "\n";
+
+    return 0;
+}
+
+/**
+ * @return array{snapshot: string, summary: string}
+ * @throws \RuntimeException when the snapshot cannot be verified; nothing is written then
+ */
+function importSnapshot(string $base, ?string $snapshot, string $root): array
+{
+    secureUrl($base) || throw new \InvalidArgumentException('the dataset base must be https (plain http only for a local test server)');
+    $snapshot === null || validSnapshotId($snapshot) || throw new \InvalidArgumentException("not a snapshot id: {$snapshot}");
+    $base = rtrim($base, '/');
+    $v1 = "{$base}/thailand-address/v1";
+
+    $index = json_decode(get("{$v1}/snapshots.json"), true, flags: JSON_THROW_ON_ERROR);
+    if ($snapshot === null) {
+        $snapshot = (string) json_decode(get("{$v1}/latest.json"), true, flags: JSON_THROW_ON_ERROR)['snapshot'];
+        validSnapshotId($snapshot) || throw new \RuntimeException("latest.json names an invalid snapshot id {$snapshot}");
+    }
+    $entry = null;
+    foreach ($index['snapshots'] ?? [] as $candidate) {
+        if (($candidate['id'] ?? null) === $snapshot) {
+            $entry = $candidate;
         }
     }
-    foreach (['zip', 'simplexml', 'mbstring'] as $ext) {
-        extension_loaded($ext) || fail("ext-{$ext} is required");
-    }
-    is_dir($cacheDir) || mkdir($cacheDir, 0o777, true) || fail("cannot create {$cacheDir}");
+    $entry !== null || throw new \RuntimeException("snapshot {$snapshot} is not in snapshots.json");
+    $entry['status'] === 'published' || throw new \RuntimeException("snapshot {$snapshot} is {$entry['status']}; a withdrawn snapshot is never imported");
 
-    $meta = [];
-    foreach (SOURCES as $id => $source) {
-        $meta[$id] = obtain($id, $source, $cacheDir, $mode);
-    }
-    if ($verify) {
-        $manifest = json_decode((string) file_get_contents("{$root}/data/sources.json"), true, flags: JSON_THROW_ON_ERROR);
-        $problems = verifyAgainstManifest($meta, $manifest);
-        foreach ($problems as $problem) {
-            out("MISMATCH {$problem}");
-        }
-        $problems === [] || fail(count($problems) . ' source(s) differ from data/sources.json');
-        out('verify: every source matches data/sources.json');
-
-        return;
-    }
-
-    [$asOf, $areas] = readDopa("{$cacheDir}/" . SOURCES['dopa_ccaatt']['file']);
-    [$postalCodes, $postalCodeStats, $postalCodeReview] = joinPostalCodes(
-        $areas,
-        "{$cacheDir}/" . SOURCES['thailandpost_subdistricts']['file'],
-        "{$cacheDir}/" . SOURCES['mdes_postoffice']['file'],
-    );
-    $isoCodes = isoCodes($areas['province'], "{$cacheDir}/" . SOURCES['iso_3166_2']['file']);
-    $counts = check($areas);
-
-    $previous = is_file("{$root}/data/sources.json") ? json_decode((string) file_get_contents("{$root}/data/sources.json"), true) : null;
+    $manifestJson = get("{$v1}/{$snapshot}/manifest.json");
+    hash_equals((string) $entry['manifest_sha256'], hash('sha256', $manifestJson))
+        || throw new \RuntimeException("{$snapshot}/manifest.json is not the manifest snapshots.json records");
+    $manifest = json_decode($manifestJson, true, flags: JSON_THROW_ON_ERROR);
+    majorOne((string) ($manifest['schema_version'] ?? '')) || throw new \RuntimeException("{$snapshot} is schema {$manifest['schema_version']}; this importer reads schema v1");
 
     $rows = [];
-    foreach ($areas['province'] as $code => $a) {
-        $rows[$code] = ['name_th' => $a['th'], 'name_en' => $a['en'], 'iso_code' => $isoCodes[(string) $code]];
+    foreach (['provinces', 'districts', 'subdistricts', 'postal_codes', 'changes'] as $file) {
+        $content = get("{$v1}/{$snapshot}/{$file}.json");
+        hash_equals((string) ($manifest['files']["{$file}.json"]['sha256'] ?? ''), hash('sha256', $content))
+            || throw new \RuntimeException("{$snapshot}/{$file}.json does not match its manifest");
+        $json = json_decode($content, true, flags: JSON_THROW_ON_ERROR);
+        majorOne((string) ($json['schema_version'] ?? '')) && ($json['snapshot'] ?? null) === $snapshot
+            || throw new \RuntimeException("{$snapshot}/{$file}.json is not a schema v1 file of this snapshot");
+        $rows[$file] = $json['data'];
     }
-    writePhp("{$root}/data/provinces.php", $rows);
-    writePhp("{$root}/data/districts.php", array_map(fn ($a) => ['name_th' => $a['th'], 'name_en' => $a['en']], $areas['district']));
-    $rows = [];
-    foreach ($areas['subdistrict'] as $code => $a) {
-        $rows[$code] = ['name_th' => $a['th'], 'name_en' => $a['en'], 'postal_codes' => $postalCodes[$code] ?? []];
-    }
-    writePhp("{$root}/data/subdistricts.php", $rows);
-    writeReview("{$root}/tools/review/postal-codes.csv", $postalCodeReview);
-
-    $manifest = ['sources' => []];
-    foreach (SOURCES as $id => $source) {
-        $manifest['sources'][$id] = [
-            'name' => $source['name'],
-            'publisher' => $source['publisher'],
-            'url' => $source['url'],
-            'landing_page' => $source['landing'],
-            'method' => $source['method'],
-            'fetched_at' => $meta[$id]['fetched_at'],
-            'http_last_modified' => $meta[$id]['last_modified'],
-            'http_etag' => $meta[$id]['etag'],
-            'bytes' => $meta[$id]['bytes'],
-            'sha256' => $meta[$id]['sha256'],
-            'licence' => $source['licence'],
-            'licence_note' => $source['licence_note'],
-            'used_for' => $source['used_for'],
-        ];
-    }
-    $manifest['sources']['dopa_ccaatt']['data_as_of'] = $asOf;
-    $manifest['counts'] = $counts;
-    $manifest['postal_codes'] = $postalCodeStats;
-    file_put_contents(
-        "{$root}/data/sources.json",
-        json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n",
-    );
-
-    out('counts: ' . json_encode($counts, JSON_UNESCAPED_UNICODE));
-    out('postal codes: ' . json_encode($postalCodeStats));
-    if (is_array($previous) && ($previous['counts'] ?? null) !== $counts) {
-        out('NOTE: counts changed from ' . json_encode($previous['counts'] ?? null) . '; update the tests deliberately.');
-    }
-}
-
-/**
- * The cached copy of a source, fetching it first when the mode allows.
- *
- * @param array<string, mixed> $source
- * @return array{fetched_at: string, last_modified: ?string, etag: ?string, bytes: int, sha256: string}
- */
-function obtain(string $id, array $source, string $cacheDir, string $mode): array
-{
-    $path = "{$cacheDir}/{$source['file']}";
-    $metaPath = "{$path}.meta.json";
-    if ($mode !== 'refresh' && is_file($path) && is_file($metaPath)) {
-        $meta = json_decode((string) file_get_contents($metaPath), true, flags: JSON_THROW_ON_ERROR);
-        hash_file('sha256', $path) === $meta['sha256'] || fail("{$path} does not match its recorded sha256; delete it or use --refresh");
-        out("cache  {$id}: {$path}");
-
-        return $meta;
-    }
-    $mode !== 'offline' || fail("{$id} is not cached in {$cacheDir} and --offline was given");
-
-    $body = $source['method'] === 'POST' ? thailandPostPayload(['flag' => '0']) : null;
-    [$status, $headers, $content] = politeRequest($source['method'], $source['url'], $body);
-    looksRight($id, $content) || fail("{$id}: the response does not look like the data (a block or CAPTCHA page?). Stopping.");
-
-    file_put_contents($path, $content);
-    $meta = [
-        'url' => $source['url'],
-        'method' => $source['method'],
-        'status' => $status,
-        'fetched_at' => gmdate('Y-m-d\TH:i:s\Z'),
-        'last_modified' => $headers['last-modified'] ?? null,
-        'etag' => $headers['etag'] ?? null,
-        'content_type' => $headers['content-type'] ?? null,
-        'bytes' => strlen($content),
-        'sha256' => hash('sha256', $content),
-    ];
-    file_put_contents($metaPath, json_encode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
-    out("fetch  {$id}: {$status}, {$meta['bytes']} bytes");
-
-    return $meta;
-}
-
-/**
- * The sources whose bytes differ from the sha256 recorded in
- * data/sources.json, as messages; empty when all match.
- *
- * @param array<string, array{sha256: string}> $meta
- * @param array{sources: array<string, array{sha256: string}>} $manifest
- * @return list<string>
- */
-function verifyAgainstManifest(array $meta, array $manifest): array
-{
-    $problems = [];
-    foreach ($meta as $id => $m) {
-        $expected = $manifest['sources'][$id]['sha256'] ?? null;
-        if ($expected === null) {
-            $problems[] = "{$id}: not in data/sources.json";
-        } elseif (!hash_equals($expected, $m['sha256'])) {
-            $problems[] = "{$id}: sha256 {$m['sha256']} does not match {$expected} in data/sources.json";
-        }
+    foreach (['provinces', 'districts', 'subdistricts', 'postal_codes'] as $file) {
+        $rows[$file] = validRows($file, $rows[$file]);
     }
 
-    return $problems;
-}
-
-/**
- * Where a redirect from $from to $location goes, or null when it must not be
- * followed: anything but an https target, so a source is never downgraded to
- * plain http on the way.
- */
-function redirectTarget(string $from, string $location): ?string
-{
-    if ($location === '') {
-        return null;
+    $active = fn (array $list) => array_filter($list, fn (array $r) => ($r['status'] ?? null) === 'active');
+    $provinces = [];
+    foreach ($active($rows['provinces']) as $p) {
+        $provinces[(string) $p['code']] = ['name_th' => $p['name']['th'], 'name_en' => $p['name']['en'] ?? '', 'iso_code' => $p['iso_code']];
     }
-    if (str_starts_with($location, '//')) {
-        $location = 'https:' . $location;
-    } elseif (str_starts_with($location, '/')) {
-        $parts = parse_url($from);
-        $location = 'https://' . ($parts['host'] ?? '') . (isset($parts['port']) ? ':' . $parts['port'] : '') . $location;
+    $districts = [];
+    foreach ($active($rows['districts']) as $d) {
+        // The dataset stores names without their prefix; the library has always
+        // shipped Bangkok's khet with it, so it is put back.
+        $districts[(string) $d['code']] = ['name_th' => ($d['kind'] === 'khet' ? 'เขต' : '') . $d['name']['th'], 'name_en' => $d['name']['en'] ?? ''];
     }
-
-    return strtolower((string) parse_url($location, PHP_URL_SCHEME)) === 'https' ? $location : null;
-}
-
-/** @return array{int, array<string, string>, string} */
-function politeRequest(string $method, string $url, ?string $body): array
-{
-    static $last = 0.0;
-    $redirects = 0;
-    for ($attempt = 0; ; $attempt++) {
-        $wait = $last + MIN_GAP_SECONDS + mt_rand(0, 1000) / 1000 - microtime(true);
-        if ($wait > 0) {
-            usleep((int) ($wait * 1_000_000));
-        }
-        $context = stream_context_create(['http' => [
-            'method' => $method,
-            'header' => implode("\r\n", requestHeaders($body !== null)),
-            'content' => $body ?? '',
-            'timeout' => 120,
-            'ignore_errors' => true,
-            // Redirects are followed below, so a downgrade can be refused.
-            'follow_location' => 0,
-        ]]);
-        $content = @file_get_contents($url, false, $context);
-        $last = microtime(true);
-        $responseHeaders = function_exists('http_get_last_response_headers') ? (http_get_last_response_headers() ?? []) : ($http_response_header ?? []);
-        $status = 0;
-        $parsed = [];
-        foreach ($responseHeaders as $line) {
-            if (preg_match('#^HTTP/\S+\s+(\d{3})#', $line, $m)) {
-                $status = (int) $m[1];
-                $parsed = [];
-            } elseif (str_contains($line, ':')) {
-                [$k, $v] = explode(':', $line, 2);
-                $parsed[strtolower(trim($k))] = trim($v);
-            }
-        }
-        out("{$method} {$url} -> {$status}");
-        if (in_array($status, [301, 302, 303, 307, 308], true)) {
-            $target = redirectTarget($url, $parsed['location'] ?? '');
-            $target !== null || fail("{$url} redirects to " . ($parsed['location'] ?? '(nothing)') . ', which is not https. Stopping.');
-            ++$redirects <= 5 || fail("{$url}: more than 5 redirects");
-            $url = $target;
-            if ($status <= 303) {
-                [$method, $body] = ['GET', null];
-            }
-            $attempt--;
-            continue;
-        }
-        if ($status === 200 && is_string($content)) {
-            return [$status, $parsed, $content];
-        }
-        if ($status === 401 || $status === 403) {
-            fail("{$url} answered {$status}: blocked. Stopping; do not work around it.");
-        }
-        if ($status !== 429 && $status < 500) {
-            fail("{$url} answered {$status}");
-        }
-        $attempt < 3 || fail("{$url}: giving up after 3 retries");
-        sleep(2 ** ($attempt + 2));
+    $postal = [];
+    foreach ($active($rows['postal_codes']) as $link) {
+        $postal[(string) $link['subdistrict_code']][] = (string) $link['postal_code'];
     }
-}
-
-/**
- * The headers of every request: an honest User-Agent, and a content type for a
- * POST body. No Origin or X-Requested-With: Thailand Post's getSubdistrict was
- * tested without them on 2026-10-14 and answered 200 with a byte-identical
- * body (sha256 ccbff60f...), so the generator does not pose as its web app.
- *
- * @return list<string>
- */
-function requestHeaders(bool $hasBody): array
-{
-    $headers = ['User-Agent: ' . USER_AGENT, 'Accept: */*'];
-    if ($hasBody) {
-        $headers[] = 'Content-Type: application/json';
+    $subdistricts = [];
+    foreach ($active($rows['subdistricts']) as $s) {
+        $codes = array_values(array_unique($postal[(string) $s['code']] ?? []));
+        sort($codes, SORT_STRING);
+        $subdistricts[(string) $s['code']] = ['name_th' => $s['name']['th'], 'name_en' => $s['name']['en'] ?? '', 'postal_codes' => $codes];
     }
-
-    return $headers;
-}
-
-/**
- * The track web app's request wrapper (from its public app.js): the JSON body
- * is base64-encoded, cut into 9 chunks sent in a shuffled order, followed by a
- * base64 map of that order.
- *
- * @param array<string, string> $payload
- */
-function thailandPostPayload(array $payload, int $chunks = 9): string
-{
-    $encoded = base64_encode(json_encode(['data' => json_encode($payload), 'd' => null], JSON_THROW_ON_ERROR));
-    $size = (int) ceil(strlen($encoded) / $chunks);
-    $parts = [];
-    for ($i = 0; $i < $chunks; $i++) {
-        $parts[] = substr($encoded, $size * $i, $size);
-    }
-    $order = range(0, $chunks - 1);
-    shuffle($order);
-    $map = implode(':', array_map(fn (int $i) => $i . strlen($parts[$i]), $order));
-
-    return implode('', array_map(fn (int $i) => $parts[$i], $order)) . ',' . base64_encode($map);
-}
-
-function looksRight(string $id, string $content): bool
-{
-    return match ($id) {
-        'dopa_ccaatt' => str_starts_with($content, "PK\x03\x04"),
-        'mdes_postoffice' => str_contains(substr($content, 0, 400), 'Postalcode'),
-        'thailandpost_subdistricts' => is_array($rows = json_decode($content, true)) && isset($rows[0]['subdistrictsCode'], $rows[0]['zipcode']),
-        'iso_3166_2' => is_array($rows = json_decode($content, true)) && isset($rows['3166-2'][0]['code']),
-        default => false,
-    };
-}
-
-/**
- * The active rows of ccaatt.xlsx, by level and code, plus the file's as-of date.
- *
- * @return array{array{text: string, date: ?string}, array{province: array<string, array{th: string, en: string}>, district: array<string, array{th: string, en: string}>, subdistrict: array<string, array{th: string, en: string}>}}
- */
-function readDopa(string $path): array
-{
-    $zip = new ZipArchive();
-    $zip->open($path) === true || fail("cannot open {$path}");
-    $ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
-    $shared = [];
-    $sharedXml = $zip->getFromName('xl/sharedStrings.xml');
-    if ($sharedXml !== false) {
-        foreach (simplexml_load_string($sharedXml)->children($ns)->si as $si) {
-            $shared[] = implode('', array_map('strval', $si->xpath('.//*[local-name()="t"]')));
-        }
-    }
-    $sheet = simplexml_load_string((string) $zip->getFromName('xl/worksheets/sheet1.xml'));
-    $zip->close();
-
-    $asOf = ['text' => '', 'date' => null];
-    $areas = ['province' => [], 'district' => [], 'subdistrict' => []];
-    $cancelled = 0;
-    foreach ($sheet->children($ns)->sheetData->row as $row) {
-        $cells = [];
-        foreach ($row->children($ns)->c as $c) {
-            // Attributes are unqualified; read them outside the main namespace.
-            $attributes = $c->attributes();
-            $col = preg_replace('/\d+/', '', (string) $attributes['r']);
-            $type = (string) $attributes['t'];
-            $value = $type === 's' ? $shared[(int) $c->children($ns)->v] : ($type === 'inlineStr'
-                ? implode('', array_map('strval', $c->xpath('.//*[local-name()="t"]')))
-                : (string) $c->children($ns)->v);
-            $cells[$col] = $value;
-        }
-        $code = trim($cells['A'] ?? '');
-        if (!preg_match('/^\d{8}$/', $code)) {
-            if (str_contains($code, 'ข้อมูล ณ')) {
-                $asOf = ['text' => clean($code), 'date' => thaiDate($code)];
-            }
-            continue;
-        }
-        if (trim($cells['D'] ?? '') !== '0') {
-            $cancelled++;
-            continue;
-        }
-        [$level, $key] = match (true) {
-            substr($code, 2) === '000000' => ['province', substr($code, 0, 2)],
-            substr($code, 4) === '0000' => ['district', substr($code, 0, 4)],
-            substr($code, 6) === '00' => ['subdistrict', substr($code, 0, 6)],
-            default => fail("unexpected code {$code}"),
-        };
-        !isset($areas[$level][$key]) || fail("duplicate active code {$code}");
-        $areas[$level][$key] = ['th' => clean($cells['B'] ?? ''), 'en' => clean($cells['C'] ?? '')];
-    }
-    foreach ($areas as &$level) {
+    foreach ([&$provinces, &$districts, &$subdistricts] as &$level) {
         ksort($level, SORT_STRING);
     }
     unset($level);
-    out("dopa: skipped {$cancelled} cancelled rows; as of " . ($asOf['date'] ?? '?'));
 
-    return [$asOf, $areas];
-}
+    // Verified in full: now write.
+    $header = "// Imported by tools/generate.php from snapshot {$snapshot} (see data/sources.json). Do not edit.\n";
+    writePhp("{$root}/data/provinces.php", $provinces, $header);
+    writePhp("{$root}/data/districts.php", $districts, $header);
+    writePhp("{$root}/data/subdistricts.php", $subdistricts, $header);
+    file_put_contents("{$root}/data/sources.json", json_encode([
+        'snapshot' => $snapshot,
+        'schema_version' => $manifest['schema_version'],
+        'manifest_sha256' => $entry['manifest_sha256'],
+        'url' => PUBLIC_BASE . "/thailand-address/v1/{$snapshot}/",
+        'generated_at' => $manifest['generated_at'] ?? null,
+        'counts' => $manifest['counts'] ?? null,
+        'sources' => $manifest['sources'] ?? [],
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n");
 
-function clean(string $s): string
-{
-    return trim((string) preg_replace('/\s+/u', ' ', str_replace("\u{200B}", '', $s)));
-}
-
-function thaiDate(string $text): ?string
-{
-    $months = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
-    if (!preg_match('/(\d{1,2})\s+(\S+)\s+(\d{4})/u', $text, $m) || ($month = array_search($m[2], $months, true)) === false) {
-        return null;
-    }
-
-    return sprintf('%04d-%02d-%02d', (int) $m[3] - 543, $month + 1, (int) $m[1]);
-}
-
-/**
- * The ISO 3166-2 code of every province: the iso-codes entry TH-<DOPA code>,
- * accepted only when its name agrees with DOPA's English name.
- *
- * @param array<array-key, array{th: string, en: string}> $provinces
- * @return array<string, string>
- */
-function isoCodes(array $provinces, string $path): array
-{
-    $iso = [];
-    foreach (json_decode((string) file_get_contents($path), true, flags: JSON_THROW_ON_ERROR)['3166-2'] as $row) {
-        if (str_starts_with($row['code'], 'TH-')) {
-            $iso[$row['code']] = $row['name'];
-        }
-    }
-    $letters = fn (string $s): string => strtolower((string) preg_replace('/[^a-z]/i', '', $s));
-    $codes = [];
-    foreach ($provinces as $code => $a) {
-        $isoCode = 'TH-' . $code;
-        isset($iso[$isoCode]) || fail("ISO 3166-2 has no {$isoCode} for province {$code} {$a['en']}");
-        $agrees = (ISO_NAME_ALIASES[$isoCode] ?? null) === [$a['en'], $iso[$isoCode]]
-            || similarity($letters($a['en']), $letters($iso[$isoCode])) >= 0.8;
-        $agrees || fail("{$isoCode} is \"{$iso[$isoCode]}\" in ISO 3166-2 but DOPA {$code} is \"{$a['en']}\"; check it and extend ISO_NAME_ALIASES");
-        $codes[(string) $code] = $isoCode;
-    }
-
-    return $codes;
+    return ['snapshot' => $snapshot, 'summary' => summary($snapshot, $manifest, $rows['changes'])];
 }
 
 /**
- * Postal codes per subdistrict code: Thailand Post joined by code (when its
- * name agrees with DOPA's), MDES joined by normalised names, the union of both.
- *
- * A code only one source gives is dropped when its first two digits are not a
- * postal area that both sources agree on anywhere in the same province, unless
- * CROSS_PROVINCE_POSTAL_CODES vouches for it (#19). Each source has typos the
- * other does not (MDES gave Sung Noen, Buri Ram, 73697 next to 31160), and the
- * union used to ship them as valid codes.
- *
- * Also returns the rows a person should look at on a refresh: every subdistrict
- * where the sources disagree, and every code dropped.
- *
- * @param array{province: array<string, array{th: string, en: string}>, district: array<string, array{th: string, en: string}>, subdistrict: array<string, array{th: string, en: string}>} $areas
- * @return array{array<string, list<string>>, array<string, int>, list<array<string, string>>}
+ * @param array<string, mixed> $manifest
+ * @param list<array<string, mixed>> $changes
  */
-function joinPostalCodes(array $areas, string $thailandPostPath, string $mdesPath): array
+function summary(string $snapshot, array $manifest, array $changes): string
 {
-    $byName = [];
-    foreach ($areas['subdistrict'] as $code => $a) {
-        $code = (string) $code; // PHP turns numeric array keys into ints
-        $key = norm($areas['province'][substr($code, 0, 2)]['th'], 'province') . '|'
-            . norm($areas['district'][substr($code, 0, 4)]['th'], 'district') . '|'
-            . norm($a['th'], 'subdistrict');
-        $byName[$key][] = $code;
+    $counts = ['added' => 0, 'renamed' => 0, 'abolished' => 0, 'postal_codes_changed' => 0];
+    foreach ($changes as $c) {
+        isset($counts[$c['change'] ?? null]) && $counts[$c['change']]++;
     }
-
-    $tp = [];
-    $withheld = 0;
-    foreach (json_decode((string) file_get_contents($thailandPostPath), true, flags: JSON_THROW_ON_ERROR) as $row) {
-        $code = (string) $row['subdistrictsCode'];
-        $zip = trim((string) $row['zipcode']);
-        if (!isset($areas['subdistrict'][$code]) || !preg_match('/^\d{5}$/', $zip)) {
-            continue;
-        }
-        $a = norm((string) $row['subdistrictsNameTH'], 'subdistrict');
-        $b = norm($areas['subdistrict'][$code]['th'], 'subdistrict');
-        // The same code under a different name: accept spelling variants and
-        // containment ("เทศบาลบางปู" / "บางปู"), withhold anything else.
-        if ($a !== $b && !(similarity($a, $b) >= 0.7 || str_contains($a, $b) || str_contains($b, $a))) {
-            $withheld++;
-            continue;
-        }
-        $tp[$code][$zip] = true;
+    $out = "Updates `data/` to snapshot [`{$snapshot}`](" . PUBLIC_BASE . "/thailand-address/v1/{$snapshot}/manifest.json) of the Thai address dataset";
+    $out .= ($manifest['previous_snapshot'] ?? null) !== null ? ", against `{$manifest['previous_snapshot']}`.\n\n" : ".\n\n";
+    $out .= "| change | count |\n|---|---|\n";
+    foreach ($counts as $kind => $n) {
+        $out .= "| {$kind} | {$n} |\n";
     }
-
-    $mdes = [];
-    $unmatched = 0;
-    $handle = fopen($mdesPath, 'r');
-    $header = fgetcsv($handle, escape: '\\');
-    $header[0] = preg_replace('/^\x{FEFF}/u', '', (string) $header[0]);
-    $col = array_flip($header);
-    while (($r = fgetcsv($handle, escape: '\\')) !== false) {
-        $zip = trim(str_replace("\u{200B}", '', (string) ($r[$col['Postalcode']] ?? '')));
-        if (!preg_match('/^\d{5}$/', $zip)) {
-            $unmatched++;
-            continue;
+    if ($changes !== []) {
+        $out .= "\n<details><summary>First " . min(100, count($changes)) . ' of ' . count($changes) . " changes</summary>\n\n| level | code | change | before | after |\n|---|---|---|---|---|\n";
+        // Every cell is text from the bucket, so it is escaped rather than put
+        // in a code span: a backtick in the data would close the span and let
+        // links, images and HTML render in the pull request.
+        foreach (array_slice($changes, 0, 100) as $c) {
+            $cells = [$c['level'] ?? '', $c['code'] ?? '', $c['change'] ?? '', json_encode($c['before'] ?? null, JSON_UNESCAPED_UNICODE), json_encode($c['after'] ?? null, JSON_UNESCAPED_UNICODE)];
+            $out .= '| ' . implode(' | ', array_map(fn ($v) => markdownCell(is_string($v) ? $v : (string) json_encode($v)), $cells)) . " |\n";
         }
-        $p = norm((string) $r[$col['Province']], 'province');
-        $d = norm((string) $r[$col['Amphoe']], 'district');
-        $t = norm((string) $r[$col['Tambon']], 'subdistrict');
-        $codes = $byName["{$p}|{$d}|{$t}"] ?? ($d === 'เมือง' ? ($byName["{$p}|เมือง{$p}|{$t}"] ?? []) : []);
-        if (count($codes) !== 1) {
-            $unmatched++;
-            continue;
-        }
-        $mdes[$codes[0]][$zip] = true;
+        $out .= "\n</details>\n";
     }
-    fclose($handle);
+    $out .= "\nEvery file was checked against the snapshot's manifest, and the manifest against the sha256 in `v1/snapshots.json`. The workflow ran the test suite on the result before opening this PR. It is never merged automatically.\n";
 
-    // The postal areas (first two digits) each province is known to use: those
-    // of codes both sources give for one of its subdistricts.
-    $areasOf = [];
-    foreach ($tp as $code => $zips) {
-        foreach (array_keys($zips) as $zip) {
-            if (isset($mdes[$code][$zip])) {
-                $areasOf[substr((string) $code, 0, 2)][substr((string) $zip, 0, 2)] = true;
-            }
-        }
-    }
+    return $out;
+}
 
-    $postalCodes = [];
-    $review = [];
-    $stats = ['subdistricts' => count($areas['subdistrict']), 'with_postal_code' => 0, 'both_sources' => 0, 'thailandpost_only' => 0, 'mdes_only' => 0, 'sources_disagree' => 0, 'without_postal_code' => 0, 'thailandpost_withheld_name_mismatch' => $withheld, 'mdes_rows_unmatched' => $unmatched, 'dropped_outside_province' => 0, 'left_without_postal_code_by_drop' => 0];
-    $vouched = 0;
-    foreach (array_keys($areas['subdistrict']) as $code) {
-        $code = (string) $code;
-        $t = array_map('strval', array_keys($tp[$code] ?? []));
-        $m = array_map('strval', array_keys($mdes[$code] ?? []));
-        $dropped = [];
-        $keep = function (string $zip, array $other) use ($code, $areasOf, &$dropped, &$vouched): bool {
-            if (in_array($zip, $other, true) || isset($areasOf[substr($code, 0, 2)][substr($zip, 0, 2)])) {
-                return true;
-            }
-            if (isset(CROSS_PROVINCE_POSTAL_CODES[$code][$zip])) {
-                $vouched++;
+/** Escapes text for one Markdown table cell: no column break, no link, image, code or HTML. */
+function markdownCell(string $text): string
+{
+    $text = str_replace(["\r\n", "\r", "\n"], ' ', $text);
+    // HTML first, as entities, so a tag never reaches the renderer at all.
+    $text = str_replace(['&', '<', '>'], ['&amp;', '&lt;', '&gt;'], $text);
 
-                return true;
-            }
-            $dropped[] = $zip;
-
-            return false;
-        };
-        [$t, $m] = [
-            array_values(array_filter($t, fn (string $zip) => $keep($zip, $m))),
-            array_values(array_filter($m, fn (string $zip) => $keep($zip, $t))),
-        ];
-        $stats['dropped_outside_province'] += count($dropped);
-        if ($t === [] && $m === []) {
-            $stats['without_postal_code']++;
-            $stats['left_without_postal_code_by_drop'] += $dropped === [] ? 0 : 1;
-            $dropped === [] || $review[] = reviewRow($areas, $code, $t, $m, $dropped);
-            continue;
-        }
-        $all = array_unique([...$t, ...$m]);
-        sort($all, SORT_STRING);
-        $postalCodes[$code] = $all;
-        $stats['with_postal_code']++;
-        $stats[$t !== [] && $m !== [] ? 'both_sources' : ($t !== [] ? 'thailandpost_only' : 'mdes_only')]++;
-        $disagree = false;
-        if ($t !== [] && $m !== []) {
-            sort($t);
-            sort($m);
-            $disagree = $t != $m;
-            $stats['sources_disagree'] += $disagree ? 1 : 0;
-        }
-        if ($disagree || $dropped !== []) {
-            $review[] = reviewRow($areas, $code, $t, $m, $dropped);
-        }
-    }
-    $vouched === count(CROSS_PROVINCE_POSTAL_CODES)
-        || out('NOTE: only ' . $vouched . ' of ' . count(CROSS_PROVINCE_POSTAL_CODES) . ' CROSS_PROVINCE_POSTAL_CODES entries were needed; prune the stale ones.');
-
-    return [$postalCodes, $stats, $review];
+    return (string) preg_replace('/([\\\\`*_{}\[\]()#+!|~-])/', '\\\\$1', $text);
 }
 
 /**
- * @param array{province: array<string, array{th: string, en: string}>, district: array<string, array{th: string, en: string}>, subdistrict: array<string, array{th: string, en: string}>} $areas
- * @param list<string> $t
- * @param list<string> $m
- * @param list<string> $dropped
- * @return array<string, string>
+ * The rows of one data file, refused unless each has the shape the importer
+ * writes from.
+ *
+ * @param mixed $rows
+ * @return list<array<string, mixed>>
  */
-function reviewRow(array $areas, string $code, array $t, array $m, array $dropped): array
+function validRows(string $file, mixed $rows): array
 {
-    return [
-        'subdistrict_code' => $code,
-        'subdistrict' => $areas['subdistrict'][$code]['th'],
-        'district' => $areas['district'][substr($code, 0, 4)]['th'],
-        'province' => $areas['province'][substr($code, 0, 2)]['th'],
-        'thailandpost' => implode(' ', $t),
-        'mdes' => implode(' ', $m),
-        'dropped_outside_province' => implode(' ', $dropped),
+    is_array($rows) && array_is_list($rows) || throw new \RuntimeException("{$file}.json: data is not a list");
+    $codeLength = ['provinces' => 2, 'districts' => 4, 'subdistricts' => 6];
+    $kinds = [
+        'provinces' => ['province', 'special_administrative_area'],
+        'districts' => ['amphoe', 'khet'],
+        'subdistricts' => ['tambon', 'khwaeng'],
+        'postal_codes' => ['standard', 'facility'],
     ];
-}
-
-/** @param list<array<string, string>> $rows */
-function writeReview(string $path, array $rows): void
-{
-    is_dir(dirname($path)) || mkdir(dirname($path), 0o777, true) || fail('cannot create ' . dirname($path));
-    $handle = fopen($path, 'w');
-    fputcsv($handle, ['subdistrict_code', 'subdistrict', 'district', 'province', 'thailandpost', 'mdes', 'dropped_outside_province'], escape: '\\');
-    foreach ($rows as $row) {
-        fputcsv($handle, array_values($row), escape: '\\');
-    }
-    fclose($handle);
-}
-
-function norm(string $s, string $kind): string
-{
-    $s = preg_replace('/\s+/u', '', str_replace("\u{200B}", '', $s));
-    $s = rtrim($s, '*');
-    $s = match ($kind) {
-        'province' => preg_replace('/^(จังหวัด|จ\.)/u', '', $s),
-        'district' => preg_replace('/^(อำเภอ|เขต|อ\.)/u', '', $s),
-        default => preg_replace('/^(ตำบล|แขวง|ต\.)/u', '', $s),
-    };
-    if ($kind === 'province' && in_array($s, ['กรุงเทพ', 'กรุงเทพฯ', 'กรุงเทพมหานคร', 'กทม', 'กทม.'], true)) {
-        $s = 'กรุงเทพมหานคร';
-    }
-
-    return str_replace('ฯ', '', $s);
-}
-
-/** Ratcliff/Obershelp similarity over characters, as Python's difflib ratio(). */
-function similarity(string $a, string $b): float
-{
-    $x = mb_str_split($a);
-    $y = mb_str_split($b);
-    $total = count($x) + count($y);
-
-    return $total === 0 ? 1.0 : 2 * matchingChars($x, $y) / $total;
-}
-
-/**
- * @param list<string> $x
- * @param list<string> $y
- */
-function matchingChars(array $x, array $y): int
-{
-    $best = $bx = $by = 0;
-    for ($i = 0, $n = count($x); $i < $n; $i++) {
-        for ($j = 0, $m = count($y); $j < $m; $j++) {
-            $k = 0;
-            while ($i + $k < $n && $j + $k < $m && $x[$i + $k] === $y[$j + $k]) {
-                $k++;
-            }
-            if ($k > $best) {
-                [$best, $bx, $by] = [$k, $i, $j];
-            }
+    foreach ($rows as $i => $r) {
+        $bad = fn (string $why) => throw new \RuntimeException("{$file}.json row {$i}: {$why}");
+        is_array($r) || $bad('not an object');
+        in_array($r['status'] ?? null, ['active', 'abolished'], true) || $bad('status is not active or abolished');
+        in_array($r['kind'] ?? null, $kinds[$file], true) || $bad('unknown kind');
+        if ($file === 'postal_codes') {
+            is_string($r['postal_code'] ?? null) && preg_match('/^\d{5}\z/', $r['postal_code']) === 1 || $bad('postal_code is not five digits');
+            is_string($r['subdistrict_code'] ?? null) && preg_match('/^\d{6}\z/', $r['subdistrict_code']) === 1 || $bad('subdistrict_code is not six digits');
+            continue;
+        }
+        is_string($r['code'] ?? null) && preg_match('/^\d{' . $codeLength[$file] . '}\z/', $r['code']) === 1 || $bad("code is not {$codeLength[$file]} digits");
+        is_string($r['name']['th'] ?? null) && trim($r['name']['th']) !== '' || $bad('no Thai name');
+        $en = $r['name']['en'] ?? null;
+        $en === null || is_string($en) || $bad('name.en is not a string or null');
+        // Names are text: no control character, NUL included, ever reaches data/.
+        preg_match('/[\x00-\x1f\x7f]/', $r['name']['th'] . ($en ?? '')) === 0 || $bad('a name holds a control character');
+        if ($file === 'provinces') {
+            is_string($r['iso_code'] ?? null) && preg_match('/^TH-[0-9A-Z]{1,3}\z/', $r['iso_code']) === 1 || $bad('iso_code is not TH-');
         }
     }
-    if ($best === 0) {
-        return 0;
-    }
 
-    return $best
-        + matchingChars(array_slice($x, 0, $bx), array_slice($y, 0, $by))
-        + matchingChars(array_slice($x, $bx + $best), array_slice($y, $by + $best));
+    return $rows;
 }
 
-/**
- * Sanity checks that hold for any honest refresh. The exact counts are pinned
- * by the tests, so a real change shows up there.
- *
- * @param array{province: array<string, mixed>, district: array<string, mixed>, subdistrict: array<string, mixed>} $areas
- * @return array<string, int>
- */
-function check(array $areas): array
+function get(string $url): string
 {
-    count($areas['province']) === 77 || fail('expected 77 provinces, got ' . count($areas['province']));
-    count($areas['district']) >= 900 || fail('fewer than 900 districts: wrong file?');
-    count($areas['subdistrict']) >= 7000 || fail('fewer than 7000 subdistricts: wrong file?');
-    foreach ($areas['district'] as $code => $_) {
-        isset($areas['province'][substr((string) $code, 0, 2)]) || fail("district {$code} has no province");
-    }
-    foreach ($areas['subdistrict'] as $code => $_) {
-        isset($areas['district'][substr((string) $code, 0, 4)]) || fail("subdistrict {$code} has no district");
-    }
-    foreach ($areas as $level) {
-        foreach ($level as $code => $a) {
-            ($a['th'] !== '' && $a['en'] !== '') || fail("{$code} has an empty name");
-            !str_contains($a['th'] . $a['en'], '*') || fail("{$code} is marked cancelled but has a zero cancel date");
-        }
-    }
-    $bangkokKhet = count(array_filter(array_keys($areas['district']), fn ($c) => str_starts_with((string) $c, '10')));
-    $bangkokKhet === 50 || fail("expected 50 Bangkok khet, got {$bangkokKhet}");
+    $curl = curl_init($url);
+    curl_setopt_array($curl, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => false,
+        CURLOPT_TIMEOUT => 120,
+        CURLOPT_HTTPHEADER => ['User-Agent: farzai/thailand-address snapshot importer'],
+    ]);
+    $body = curl_exec($curl);
+    $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    ($status === 200 && is_string($body)) || throw new \RuntimeException("GET {$url} answered {$status}");
 
-    return [
-        'provinces' => count($areas['province']),
-        'districts' => count($areas['district']),
-        'subdistricts' => count($areas['subdistrict']),
-    ];
+    return $body;
+}
+
+function secureUrl(string $url): bool
+{
+    $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+    $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+
+    return $scheme === 'https' || ($scheme === 'http' && in_array($host, ['127.0.0.1', 'localhost'], true));
+}
+
+function validSnapshotId(string $id): bool
+{
+    return preg_match('/^\d{4}-\d{2}-\d{2}(\.[1-9]\d*)?\z/', $id) === 1;
+}
+
+function majorOne(string $version): bool
+{
+    return preg_match('/^1\.\d+\.\d+\z/', $version) === 1;
 }
 
 /** @param array<array-key, array<string, mixed>> $rows */
-function writePhp(string $path, array $rows): void
+function writePhp(string $path, array $rows, string $header): void
 {
-    $lines = ["<?php\n", "// Generated by tools/generate.php from the sources in data/sources.json. Do not edit.\n", "return [\n"];
+    $lines = ["<?php\n", $header, "return [\n"];
     foreach ($rows as $code => $row) {
         $lines[] = var_export((string) $code, true) . '=>' . literal($row) . ",\n";
     }
@@ -790,15 +300,4 @@ function literal(mixed $value): string
     }
 
     return '[' . implode(',', $parts) . ']';
-}
-
-function out(string $line): void
-{
-    fwrite(STDERR, $line . "\n");
-}
-
-function fail(string $message): never
-{
-    fwrite(STDERR, "error: {$message}\n");
-    exit(1);
 }

@@ -152,7 +152,8 @@ const CROSS_PROVINCE_POSTAL_CODES = [
     // whole district's one post office is Pai 106 (Ban Chan), a 58130 office.
     '502502' => '58130', // Mae Daet, Chiang Mai
     '502503' => '58130', // Chaem Luang, Chiang Mai
-    // Thailand Post only, allowlisted in tools/generate.php with the evidence.
+    // Thailand Post only, allowlisted with the evidence in the dataset pipeline
+    // (thailand-address-data, src/Build/PostalCodes.php CROSS_PROVINCE).
     '160104' => '13240', // Kong Thanu, Lop Buri: Ban Phraek post office, Ayutthaya
     '210310' => '22160', // Kong Din, Rayong: Na Yai Am post office, Chanthaburi
     '710515' => '70190', // Sanam Yae, Kanchanaburi: Huai Krabok post office, Ratchaburi

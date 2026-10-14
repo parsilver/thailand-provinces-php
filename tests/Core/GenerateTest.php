@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-require_once dirname(__DIR__, 2) . '/tools/import-snapshot.php';
+require_once dirname(__DIR__, 2) . '/tools/generate.php';
 
 use function Farzai\ThailandAddress\Tools\Import\importSnapshot;
 

@@ -9,7 +9,7 @@ Thailand's 77 provinces, 928 districts (amphoe and Bangkok khet) and 7,436
 subdistricts (tambon and Bangkok khwaeng), keyed by their DOPA codes, with Thai
 and English names, ISO 3166-2 province codes and postal codes. Every row comes
 from an official source pinned in [`data/sources.json`](data/sources.json), and
-`tools/generate.php` rebuilds it.
+`tools/generate.php` imports it from a published snapshot of the [Thai address dataset](https://data.farzai.com/thailand-address/index.html).
 
 - An API that reads like Laravel: Laravel collections, lazy relations
   (`$subdistrict->district->province`), `*OrFail` lookups.
@@ -284,21 +284,25 @@ No data from kongvut/thai-province-data or any project derived from it is used.
 ## Refreshing the data
 
 The data comes from published snapshots of the
-[Thai address dataset](https://data.farzai.com/thailand-address/index.html), which
-is built from the official sources and published as immutable, versioned
-snapshots. A weekly workflow (`.github/workflows/update-data.yml`) checks for a
-newer one and opens a pull request; nothing is merged automatically. Its import
-job has a read-only token; a second job, which runs no Composer and no PHP,
-commits only the four data files and opens the pull request. When the test
-suite fails on the new data (it pins today's counts), the pull request opens as
-a draft labelled `needs-tests` with the failing output. By hand:
+[Thai address dataset](https://data.farzai.com/thailand-address/index.html). It is
+built from the official sources (DOPA, Thailand Post, MDES, ISO 3166-2) by its own
+pipeline, which fetches, joins and checks them, and publishes immutable, versioned
+snapshots. This library fetches nothing itself.
+
+A weekly workflow (`.github/workflows/update-data.yml`) checks for a newer snapshot,
+imports it, runs the tests and opens a pull request; nothing is merged
+automatically. Its import job has a read-only token; a second job, which runs no
+Composer and no PHP, commits only the four data files and opens the pull request.
+When the test suite fails on the new data (it pins today's counts), the pull
+request opens as a draft labelled `needs-tests` with the failing output. By hand
+(the tool is in the repository, not in the Composer package):
 
 ```sh
-php tools/import-snapshot.php                        # the latest published snapshot
-php tools/import-snapshot.php --snapshot=2026-11-01  # a pinned one
+php tools/generate.php                        # the latest published snapshot
+php tools/generate.php --snapshot=2026-11-01  # a pinned one
 ```
 
-Before writing anything, the importer checks:
+Before writing anything, it checks:
 - the snapshot is listed as published in `v1/snapshots.json`;
 - its manifest matches the sha256 recorded there;
 - every file matches the manifest and carries a schema v1 envelope for that
@@ -309,46 +313,9 @@ Before writing anything, the importer checks:
 These checks show the files are consistent with each other, not that the
 dataset's pipeline published them; a provenance check is a follow-up.
 
-Then it rewrites `data/*.php`, and `data/sources.json`, which names the snapshot. `data/` keeps its shape: active areas only, with Bangkok's khet named as before (`เขตพระนคร`).
+It then rewrites `data/*.php`, and `data/sources.json`, which names the snapshot, its sources and their licences. `data/` keeps its shape: active areas only, with Bangkok's khet named as before (`เขตพระนคร`).
 
-### The old generator
-
-The generator below still fetches the sources directly. It will be reduced to
-the importer above.
-
-```sh
-php tools/generate.php              # use tools/cache/, fetch what is missing
-php tools/generate.php --refresh    # fetch every source again
-php tools/generate.php --offline    # rebuild from the cache only
-php tools/generate.php --verify     # check the cached sources' sha256 against data/sources.json; data/ is not written
-php tools/generate.php --verify --refresh  # the same against what the sources serve today; re-fetches into tools/cache/
-```
-
-It needs `ext-zip`, `ext-simplexml` and `ext-mbstring`. A run:
-
-1. Fetches the four sources into `tools/cache/`, one request each, at least
-   2 seconds apart. Each request sends an honest User-Agent. On HTTP 401 or 403,
-   or on anything that looks like a block page, the run stops. A redirect is
-   followed only to another https URL; one to plain http stops the run.
-2. Keeps DOPA's active rows, adds each province's ISO 3166-2 code, and joins
-   the postal codes:
-   - Thailand Post by subdistrict code. A row is withheld when its name
-     disagrees with DOPA's.
-   - MDES by province, district and subdistrict name.
-   - A code only one source gives is dropped if it falls outside the
-     province's postal areas (see `CROSS_PROVINCE_POSTAL_CODES` for the
-     exceptions). Disagreements and drops are written to
-     `tools/review/postal-codes.csv` for review.
-3. Fails if a sanity check breaks: 77 provinces, 50 Bangkok khet, no orphans,
-   no empty names.
-4. Rewrites `data/*.php` and `data/sources.json`. The manifest records each
-   source's URL, fetch time, `Last-Modified`, ETag, size, sha256 and licence.
-
-Then run `composer test`. The tests pin the exact counts, so a real change in
-the sources shows up as a failing test. Update that test on purpose, and
-describe the change in the CHANGELOG.
-
-Suggested cadence: DOPA quarterly, and the postal code sources twice a year.
+Then run `composer test`. The tests pin the exact counts, so a real change shows up as a failing test. Update that test on purpose, and describe the change in the CHANGELOG.
 
 ## Upgrading from 1.x
 
@@ -410,7 +377,7 @@ composer test      # vendor/bin/pest
 ### Testing
 
 - **Tests are written in [Pest](https://pestphp.com).** `tests/Core` covers
-  the plain-PHP API, the data and the generator's helpers. `tests/Laravel`
+  the plain-PHP API, the data and the snapshot importer. `tests/Laravel`
   boots a Testbench application through `uses(...)->in('Laravel')` in
   `tests/Pest.php`.
 - **Pest versions.** `require-dev` allows Pest 3, 4 and 5, so Composer
