@@ -1,0 +1,233 @@
+# Weekly: if the Thai address dataset has published a newer snapshot than the
+# one in data/sources.json, import it, run the test suite, and open a pull
+# request. Never merged automatically.
+#
+# Two jobs, so third-party code never runs next to a write token (security
+# review on #22):
+# - import (contents: read): checks for a newer snapshot, imports it
+#   (tools/import-snapshot.php verifies it first) and hands the data files on
+#   at once, BEFORE any third-party code runs. Only then does it install
+#   dependencies and run the suite, whose log goes on as a separate artifact.
+#   The checkout keeps no token on disk.
+# - open-pr (contents: write, pull-requests: write): runs no Composer and no
+#   PHP. It takes data/*.php and data/sources.json only from the data
+#   artifact, refuses any file outside the generated grammar
+#   (tools/check-data-grammar.sh), commits them on data/<snapshot> and opens
+#   the pull request.
+#
+# The suite pins today's counts, so a real data change fails it. That is the
+# point: the pull request still opens, as a draft labelled needs-tests with the
+# failing output, and the reviewer updates the pins in it.
+#
+# A pull request opened with GITHUB_TOKEN does not start other workflows, so
+# tests.yml will not run on it by itself; a maintainer can re-run CI on it.
+name: update-data
+
+on:
+  schedule:
+    - cron: '0 4 * * 1' # Mondays, 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      snapshot:
+        description: Snapshot id to import (default the latest published)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      target: ${{ steps.check.outputs.target }}
+      skip: ${{ steps.check.outputs.skip }}
+      tests: ${{ steps.tests.outcome }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+          extensions: mbstring, curl
+          coverage: none
+
+      - name: Is there a newer snapshot?
+        id: check
+        env:
+          REQUESTED: ${{ inputs.snapshot }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          target="$REQUESTED"
+          if [ -z "$target" ]; then
+            status=$(curl -sS --proto '=https' -o latest.json -w '%{http_code}' https://data.farzai.com/thailand-address/v1/latest.json)
+            if [ "$status" = "404" ]; then
+              echo "Nothing is published yet."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            [ "$status" = "200" ] || { echo "latest.json answered $status"; exit 1; }
+            target=$(jq -r '.snapshot' latest.json)
+          fi
+          if ! [[ "$target" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}(\.[1-9][0-9]*)?$ ]]; then
+            echo "Not a snapshot id."
+            exit 1
+          fi
+          current=$(jq -r '.snapshot // empty' data/sources.json)
+          if [ "$target" = "$current" ]; then
+            echo "data/ is already at $target."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # An open pull request is waiting for review. A branch left behind
+          # by a closed one is not a reason to skip: open-pr updates it.
+          open=$(gh pr list --head "data/$target" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            echo "Pull request #$open for $target is waiting for review."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Importing $target (data/ has ${current:-no snapshot})."
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Import the snapshot
+        if: steps.check.outputs.skip == 'false'
+        env:
+          TARGET: ${{ steps.check.outputs.target }}
+        run: php tools/import-snapshot.php --snapshot="$TARGET" --summary=pr.md
+
+      # Before Composer: plugins and the code pest loads are third-party, and
+      # nothing they do after this point can reach what open-pr commits.
+      - name: Hand the data files on
+        if: steps.check.outputs.skip == 'false'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: import-data-${{ github.run_id }}
+          path: |
+            data/provinces.php
+            data/districts.php
+            data/subdistricts.php
+            data/sources.json
+            pr.md
+          retention-days: 7
+
+      # composer.lock is not committed (this is a library), so the newest
+      # releases resolve here. --no-scripts keeps package scripts from running
+      # at install, and this job's token can neither push nor tag.
+      - name: Install dependencies
+        if: steps.check.outputs.skip == 'false'
+        run: composer update --no-scripts --no-interaction --no-progress
+
+      - name: Run the test suite on the new data
+        id: tests
+        if: steps.check.outputs.skip == 'false'
+        continue-on-error: true
+        run: vendor/bin/pest --colors=never 2>&1 | tee tests.log
+
+      - name: Hand the test log on
+        if: steps.check.outputs.skip == 'false'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: import-tests-${{ github.run_id }}
+          path: tests.log
+          retention-days: 7
+
+  open-pr:
+    needs: import
+    if: needs.import.outputs.skip == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET: ${{ needs.import.outputs.target }}
+      TESTS: ${{ needs.import.outputs.tests }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: import-data-${{ github.run_id }}
+          path: ${{ runner.temp }}/import
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: import-tests-${{ github.run_id }}
+          path: ${{ runner.temp }}/tests
+
+      - name: Take only the data files, in the generated grammar
+        run: |
+          import="$RUNNER_TEMP/import"
+          expected=$'data/districts.php\ndata/provinces.php\ndata/sources.json\ndata/subdistricts.php\npr.md'
+          actual=$(cd "$import" && find . -type f | sed 's|^\./||' | LC_ALL=C sort)
+          if [ "$actual" != "$expected" ]; then
+            echo "The data artifact holds other files than the four data files and the summary:"
+            echo "$actual"
+            exit 1
+          fi
+          # The checker comes from this checkout, not from the artifact.
+          bash tools/check-data-grammar.sh "$import/data/provinces.php" "$import/data/districts.php" "$import/data/subdistricts.php"
+          jq -e 'type == "object"' "$import/data/sources.json" > /dev/null
+          for f in provinces.php districts.php subdistricts.php sources.json; do
+            cp "$import/data/$f" "data/$f"
+          done
+
+      - name: Open the pull request
+        run: |
+          [[ "$TARGET" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}(\.[1-9][0-9]*)?$ ]] || { echo "Not a snapshot id."; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -C "data/$TARGET"
+          git add -- data/provinces.php data/districts.php data/subdistricts.php data/sources.json
+          git commit -m "chore(data): update to snapshot $TARGET"
+          # A branch left by a closed pull request for this snapshot is
+          # replaced, so the snapshot is offered again rather than skipped.
+          gh auth setup-git
+          git push --force origin "data/$TARGET"
+
+          body="$RUNNER_TEMP/body.md"
+          cp "$RUNNER_TEMP/import/pr.md" "$body"
+          draft=()
+          if [ "$TESTS" != "success" ]; then
+            draft=(--draft --label needs-tests)
+            gh label create needs-tests --color fbca04 --description "The data changed counts the test suite pins" >/dev/null 2>&1 || true
+            tail -n 80 "$RUNNER_TEMP/tests/tests.log" > tests-tail.log
+            longest=$( (grep -o '`\+' tests-tail.log || true) | awk '{ if (length($0) > m) m = length($0) } END { print m + 0 }')
+            fence=$(printf '%*s' $(( longest >= 3 ? longest + 1 : 3 )) '' | tr ' ' '`')
+            {
+              echo
+              echo "## The test suite failed on this data"
+              echo
+              echo "The suite pins today's counts and known codes, so a real data change fails it. Update the pins in this pull request after checking the change, then mark it ready."
+              echo
+              echo "$fence"
+              cat tests-tail.log
+              echo "$fence"
+            } >> "$body"
+          fi
+          gh pr create --base main --head "data/$TARGET" \
+            --title "chore(data): update to snapshot $TARGET" \
+            --body-file "$body" "${draft[@]}"

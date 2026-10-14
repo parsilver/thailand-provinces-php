@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- The data now comes from published snapshots of the Thai address dataset
+  (`https://data.farzai.com/thailand-address/v1/`): `tools/import-snapshot.php`
+  imports and verifies one, and a weekly workflow opens a pull request when a
+  newer one is published. The shipped data is unchanged: importing the
+  snapshot built from the 2026-10-14 sources reproduces `data/*.php` exactly.
+
 ## 2.0.2 (2026-10-14)
 
 ### Fixed

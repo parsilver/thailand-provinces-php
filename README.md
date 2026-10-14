@@ -257,7 +257,7 @@ are the province, district and subdistrict.
 - Thailand Post is the authority on postal codes. Check with it before relying
   on a postal code for something that matters.
 
-The per-source numbers are in `data/sources.json` under `postal_codes`.
+The counts for the imported snapshot are in `data/sources.json` under `counts`, copied from that snapshot's `manifest.json`.
 
 ## Data sources and licences
 
@@ -283,7 +283,38 @@ No data from kongvut/thai-province-data or any project derived from it is used.
 
 ## Refreshing the data
 
-The generator is in the repository but not in the Composer package.
+The data comes from published snapshots of the
+[Thai address dataset](https://data.farzai.com/thailand-address/index.html), which
+is built from the official sources and published as immutable, versioned
+snapshots. A weekly workflow (`.github/workflows/update-data.yml`) checks for a
+newer one and opens a pull request; nothing is merged automatically. Its import
+job has a read-only token; a second job, which runs no Composer and no PHP,
+commits only the four data files and opens the pull request. When the test
+suite fails on the new data (it pins today's counts), the pull request opens as
+a draft labelled `needs-tests` with the failing output. By hand:
+
+```sh
+php tools/import-snapshot.php                        # the latest published snapshot
+php tools/import-snapshot.php --snapshot=2026-11-01  # a pinned one
+```
+
+Before writing anything, the importer checks:
+- the snapshot is listed as published in `v1/snapshots.json`;
+- its manifest matches the sha256 recorded there;
+- every file matches the manifest and carries a schema v1 envelope for that
+  snapshot;
+- every row it reads has the expected shape (digit codes, five-digit postal
+  codes, a Thai name, a known status and kind).
+
+These checks show the files are consistent with each other, not that the
+dataset's pipeline published them; a provenance check is a follow-up.
+
+Then it rewrites `data/*.php`, and `data/sources.json`, which names the snapshot. `data/` keeps its shape: active areas only, with Bangkok's khet named as before (`เขตพระนคร`).
+
+### The old generator
+
+The generator below still fetches the sources directly. It will be reduced to
+the importer above.
 
 ```sh
 php tools/generate.php              # use tools/cache/, fetch what is missing
