@@ -1,0 +1,109 @@
+# Weekly: if the Thai address dataset has published a newer snapshot than the
+# one in data/sources.json, import it, run the test suite, and open a pull
+# request. Never merged automatically.
+#
+# The snapshot is verified before anything is written: listed as published in
+# v1/snapshots.json, its manifest matching the sha256 recorded there, and every
+# file matching its manifest (tools/import-snapshot.php).
+#
+# A pull request opened with GITHUB_TOKEN does not start other workflows, so
+# tests.yml will not run on it by itself; the suite runs here first, and a
+# maintainer can re-run CI on the PR.
+name: update-data
+
+on:
+  schedule:
+    - cron: '0 4 * * 1' # Mondays, 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      snapshot:
+        description: Snapshot id to import (default the latest published)
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+          extensions: mbstring, curl
+          coverage: none
+
+      - name: Is there a newer snapshot?
+        id: check
+        env:
+          REQUESTED: ${{ inputs.snapshot }}
+        run: |
+          target="$REQUESTED"
+          if [ -z "$target" ]; then
+            status=$(curl -sS --proto '=https' -o latest.json -w '%{http_code}' https://data.farzai.com/thailand-address/v1/latest.json)
+            if [ "$status" = "404" ]; then
+              echo "Nothing is published yet."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            [ "$status" = "200" ] || { echo "latest.json answered $status"; exit 1; }
+            target=$(jq -r '.snapshot' latest.json)
+          fi
+          if ! [[ "$target" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}(\.[1-9][0-9]*)?$ ]]; then
+            echo "Not a snapshot id."
+            exit 1
+          fi
+          current=$(jq -r '.snapshot // empty' data/sources.json)
+          if [ "$target" = "$current" ]; then
+            echo "data/ is already at $target."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git ls-remote --exit-code --heads origin "data/$target" > /dev/null; then
+            echo "A branch for $target already exists; its pull request is waiting for review."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Importing $target (data/ has ${current:-no snapshot})."
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Import the snapshot
+        if: steps.check.outputs.skip == 'false'
+        env:
+          TARGET: ${{ steps.check.outputs.target }}
+        run: php tools/import-snapshot.php --snapshot="$TARGET" --summary="$RUNNER_TEMP/pr.md"
+
+      - name: Run the test suite on the new data
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          composer update --no-interaction --no-progress
+          vendor/bin/pest
+
+      - name: Open a pull request
+        if: steps.check.outputs.skip == 'false'
+        env:
+          TARGET: ${{ steps.check.outputs.target }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "data/$TARGET"
+          git add data/
+          git commit -m "chore(data): update to snapshot $TARGET"
+          git push origin "data/$TARGET"
+          gh pr create --base main --head "data/$TARGET" \
+            --title "chore(data): update to snapshot $TARGET" \
+            --body-file "$RUNNER_TEMP/pr.md"

@@ -283,7 +283,28 @@ No data from kongvut/thai-province-data or any project derived from it is used.
 
 ## Refreshing the data
 
-The generator is in the repository but not in the Composer package.
+The data comes from published snapshots of the
+[Thai address dataset](https://data.farzai.com/thailand-address/index.html), which
+is built from the official sources and published as immutable, versioned
+snapshots. A weekly workflow (`.github/workflows/update-data.yml`) checks for a
+newer one and opens a pull request; nothing is merged automatically. By hand:
+
+```sh
+php tools/import-snapshot.php                        # the latest published snapshot
+php tools/import-snapshot.php --snapshot=2026-11-01  # a pinned one
+```
+
+Before writing anything, the importer checks:
+- the snapshot is listed as published in `v1/snapshots.json`;
+- its manifest matches the sha256 recorded there;
+- every file matches the manifest.
+
+Then it rewrites `data/*.php`, and `data/sources.json`, which names the snapshot. `data/` keeps its shape: active areas only, with Bangkok's khet named as before (`เขตพระนคร`).
+
+### The old generator
+
+The generator below still fetches the sources directly. It will be reduced to
+the importer above.
 
 ```sh
 php tools/generate.php              # use tools/cache/, fetch what is missing
