@@ -73,12 +73,14 @@
     "postal_codes": {
         "subdistricts": 7436,
         "with_postal_code": 7386,
-        "both_sources": 4110,
-        "thailandpost_only": 3224,
+        "both_sources": 4100,
+        "thailandpost_only": 3234,
         "mdes_only": 52,
-        "sources_disagree": 92,
+        "sources_disagree": 82,
         "without_postal_code": 50,
         "thailandpost_withheld_name_mismatch": 18,
-        "mdes_rows_unmatched": 125
+        "mdes_rows_unmatched": 125,
+        "dropped_outside_province": 10,
+        "left_without_postal_code_by_drop": 0
     }
 }

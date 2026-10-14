@@ -65,13 +65,18 @@ final class ThailandAddressServiceProvider extends ServiceProvider
                 $factory->replacer($name, function (string $message, string $attribute, string $rule, array $parameters, Validator $validator) use ($name, $class): string {
                     // :other names this attribute's own parent, so a wildcard
                     // parameter resolves per row (addresses.1.province).
-                    $other = self::stringRule($class, $parameters)->setValidator($validator)->otherName($attribute);
+                    // The attribute arrives unescaped here while the data is
+                    // escaped, so both are read through the rule's own key walk,
+                    // which has the validator and so its placeholder (#20):
+                    // getValue() would miss a row key with a dot in it.
+                    $rule = self::stringRule($class, $parameters)->setValidator($validator)->setData($validator->getData());
+                    $other = $rule->otherName($attribute);
                     // Laravel falls back to the key itself when the app defines no
                     // message for the rule; then use the package's message.
                     if ($message !== "validation.{$name}") {
                         return str_replace(':other', $other, $message);
                     }
-                    $key = self::stringRule($class, $parameters)->failure($validator->getValue($attribute), $validator->getData(), $attribute) ?? 'province';
+                    $key = $rule->failure($rule->valueAt($validator->getData(), $attribute), $validator->getData(), $attribute) ?? 'province';
 
                     return (string) trans('thailand-address::validation.' . $key, [
                         'attribute' => $validator->getDisplayableAttribute($attribute),

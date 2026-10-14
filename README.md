@@ -246,8 +246,12 @@ are the province, district and subdistrict.
   serve many subdistricts, so `postalCodes` is a list of strings.
 - 7,386 of the 7,436 subdistricts have at least one postal code. The other 50 have
   an empty list because neither source covers them.
-- For 92 subdistricts the two sources disagree, and the list holds the postal
-  codes from both.
+- For 82 subdistricts the two sources disagree, and the list holds the postal
+  codes from both, except that a code only one source gives is dropped when
+  its first two digits are not a postal area both sources agree on in that
+  province. Three real cross-province codes are kept on a checked allowlist.
+  Every postal code belongs to its subdistrict's province, and a test checks
+  that.
 - `toAddress()` fills `postalCode` only when the subdistrict has exactly one, or
   when you pass one it has; it never guesses among several.
 - Thailand Post is the authority on postal codes. Check with it before relying
@@ -285,18 +289,25 @@ The generator is in the repository but not in the Composer package.
 php tools/generate.php              # use tools/cache/, fetch what is missing
 php tools/generate.php --refresh    # fetch every source again
 php tools/generate.php --offline    # rebuild from the cache only
+php tools/generate.php --verify     # check the cached sources' sha256 against data/sources.json; data/ is not written
+php tools/generate.php --verify --refresh  # the same against what the sources serve today; re-fetches into tools/cache/
 ```
 
 It needs `ext-zip`, `ext-simplexml` and `ext-mbstring`. A run:
 
 1. Fetches the four sources into `tools/cache/`, one request each, at least
    2 seconds apart. Each request sends an honest User-Agent. On HTTP 401 or 403,
-   or on anything that looks like a block page, the run stops.
+   or on anything that looks like a block page, the run stops. A redirect is
+   followed only to another https URL; one to plain http stops the run.
 2. Keeps DOPA's active rows, adds each province's ISO 3166-2 code, and joins
    the postal codes:
    - Thailand Post by subdistrict code. A row is withheld when its name
      disagrees with DOPA's.
    - MDES by province, district and subdistrict name.
+   - A code only one source gives is dropped if it falls outside the
+     province's postal areas (see `CROSS_PROVINCE_POSTAL_CODES` for the
+     exceptions). Disagreements and drops are written to
+     `tools/review/postal-codes.csv` for review.
 3. Fails if a sanity check breaks: 77 provinces, 50 Bangkok khet, no orphans,
    no empty names.
 4. Rewrites `data/*.php` and `data/sources.json`. The manifest records each

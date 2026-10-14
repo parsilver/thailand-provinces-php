@@ -25,7 +25,11 @@ final class ThaiPostalCode extends AreaRule
         if ($postalCode === null || strlen($postalCode) !== 5 || $this->repository()->postalCode($postalCode)->isEmpty()) {
             return 'postal_code';
         }
-        $subdistrict = $this->repository()->subdistrict(self::code($this->parentValue($data, $attribute)));
+        $parent = $this->parentValue($data, $attribute, $unresolved);
+        if ($unresolved) {
+            return 'postal_code_for_subdistrict';
+        }
+        $subdistrict = $this->repository()->subdistrict(self::code($parent));
         if ($subdistrict === null || $subdistrict->postalCodes === []) {
             return null;
         }

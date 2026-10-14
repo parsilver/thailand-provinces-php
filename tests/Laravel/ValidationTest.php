@@ -140,3 +140,182 @@ test('non scalar values fail cleanly', function () {
     $validator = Validator::make(['province' => ['10']], ['province' => 'thai_province']);
     $this->assertSame(['The province must be a valid Thai province code.'], $validator->errors()->get('province'));
 });
+
+/*
+ * #20: Laravel escapes a dot inside an array key with a placeholder, then hands
+ * an object rule the unescaped attribute ("addresses.a.b.district") and the
+ * escaped data. Splitting the attribute on "." paired the wildcard with "a",
+ * found no parent, and passed. Every parent-aware rule must still check the
+ * row it belongs to, whatever its key.
+ */
+dataset('row keys', [
+    'numeric key' => ['0'],
+    'dotted key' => ['a.b'],
+    'two dots' => ['x.y.z'],
+]);
+
+/** @return array<string, array<string, list<mixed>|string>> */
+function wildcardRules(): array
+{
+    return [
+        'object' => [
+            'addresses.*.district' => [Rule::thaiDistrict()->inProvince('addresses.*.province')],
+            'addresses.*.subdistrict' => [Rule::thaiSubdistrict()->inDistrict('addresses.*.district')],
+            'addresses.*.postal_code' => [Rule::thaiPostalCode()->forSubdistrict('addresses.*.subdistrict')],
+        ],
+        'string' => [
+            'addresses.*.district' => 'thai_district:addresses.*.province',
+            'addresses.*.subdistrict' => 'thai_subdistrict:addresses.*.district',
+            'addresses.*.postal_code' => 'thai_postal_code:addresses.*.subdistrict',
+        ],
+    ];
+}
+
+test('a wildcard parent is checked whatever the row key', function (string $style, string $key) {
+    // Each level is a real code that does not belong to its parent.
+    $bad = Validator::make(['addresses' => [$key => ['province' => '10', 'district' => '5001']]], [
+        'addresses.*.district' => wildcardRules()[$style]['addresses.*.district'],
+    ]);
+    $this->assertTrue($bad->fails(), "district 5001 passed under province 10 with row key {$key}");
+    $this->assertSame(
+        ["The addresses.{$key}.district is not in the selected addresses.{$key}.province."],
+        $bad->errors()->first("addresses.{$key}.district") === '' ? [] : [$bad->errors()->first("addresses.{$key}.district")],
+    );
+
+    $bad = Validator::make(['addresses' => [$key => ['district' => '1001', 'subdistrict' => '500101']]], [
+        'addresses.*.subdistrict' => wildcardRules()[$style]['addresses.*.subdistrict'],
+    ]);
+    $this->assertTrue($bad->fails(), "subdistrict 500101 passed under district 1001 with row key {$key}");
+
+    $bad = Validator::make(['addresses' => [$key => ['subdistrict' => '100101', 'postal_code' => '50200']]], [
+        'addresses.*.postal_code' => wildcardRules()[$style]['addresses.*.postal_code'],
+    ]);
+    $this->assertTrue($bad->fails(), "postal code 50200 passed for subdistrict 100101 with row key {$key}");
+
+    $good = Validator::make(['addresses' => [$key => VALID]], wildcardRules()[$style]);
+    $this->assertSame([], $good->errors()->toArray(), "a consistent address failed with row key {$key}");
+})->with('rule styles')->with('row keys');
+
+test('a wildcard parent that cannot be found fails closed', function (string $style) {
+    // No province in the row at all: the district cannot be checked against it.
+    $validator = Validator::make(['addresses' => [['district' => '5001']]], [
+        'addresses.*.district' => wildcardRules()[$style]['addresses.*.district'],
+    ]);
+    $this->assertTrue($validator->fails());
+
+    // A present but empty parent still defers to the parent's own rule.
+    $validator = Validator::make(['addresses' => [['province' => '', 'district' => '5001']]], [
+        'addresses.*.district' => wildcardRules()[$style]['addresses.*.district'],
+    ]);
+    $this->assertFalse($validator->fails());
+})->with('rule styles');
+
+/*
+ * PR #21 review: the first #20 fix matched data keys greedily and restored any
+ * "__dot__" + 16 characters, so one row could borrow another row's parent. Each
+ * case below has one bad row (a real code under the wrong parent); the error
+ * must land on that row and on no other.
+ */
+
+/**
+ * Per parent-aware rule: its field, its parent field, a value, a parent it
+ * belongs to and one it does not.
+ *
+ * @return array<string, array{string, string, string, string, string}>
+ */
+function parentAwareRules(): array
+{
+    return [
+        'district' => ['district', 'province', '5001', '50', '10'],
+        'subdistrict' => ['subdistrict', 'district', '500101', '5001', '1001'],
+        'postal code' => ['postal_code', 'subdistrict', '50200', '500101', '100101'],
+    ];
+}
+
+/** @return list<mixed>|string */
+function parentAwareRule(string $style, string $field, string $parentPath)
+{
+    return match ($field) {
+        'district' => $style === 'object' ? [Rule::thaiDistrict()->inProvince($parentPath)] : "thai_district:{$parentPath}",
+        'subdistrict' => $style === 'object' ? [Rule::thaiSubdistrict()->inDistrict($parentPath)] : "thai_subdistrict:{$parentPath}",
+        default => $style === 'object' ? [Rule::thaiPostalCode()->forSubdistrict($parentPath)] : "thai_postal_code:{$parentPath}",
+    };
+}
+
+const TWIN = 'x__dot__AAAAAAAAAAAAAAAAy';
+
+/**
+ * @return array<string, array{string, \Closure(string, string, string, string, string): array{array<string, mixed>, string}}>
+ */
+function borrowingCases(): array
+{
+    // $f field, $p parent field, $v value, $g good parent, $b bad parent
+    $row = fn (string $f, string $p, string $v, string $parent) => [$p => $parent, $f => $v];
+
+    return [
+        'control 0' => ['addresses', fn ($f, $p, $v, $g, $b) => [['0' => $row($f, $p, $v, $b)], "0.{$f}"]],
+        'a.b' => ['addresses', fn ($f, $p, $v, $g, $b) => [['a.b' => $row($f, $p, $v, $b)], "a.b.{$f}"]],
+        'x.y.z' => ['addresses', fn ($f, $p, $v, $g, $b) => [['x.y.z' => $row($f, $p, $v, $b)], "x.y.z.{$f}"]],
+        '0 and a.b mixed' => ['addresses', fn ($f, $p, $v, $g, $b) => [['0' => $row($f, $p, $v, $g), 'a.b' => $row($f, $p, $v, $b)], "a.b.{$f}"]],
+        'a*b' => ['addresses', fn ($f, $p, $v, $g, $b) => [['a*b' => $row($f, $p, $v, $b)], "a*b.{$f}"]],
+        'nested g.1 / a.b' => ['groups.*.items', fn ($f, $p, $v, $g, $b) => [['g.1' => ['items' => ['a.b' => $row($f, $p, $v, $b)]]], "g.1.items.a.b.{$f}"]],
+        'missing parent in a dotted row' => ['addresses', fn ($f, $p, $v, $g, $b) => [['a.b' => [$f => $v]], "a.b.{$f}"]],
+        'suffix key' => ['addresses', fn ($f, $p, $v, $g, $b) => [['a' => $row($f, $p, $v, $b), "a.{$f}" => $row($f, $p, $v, $g)], "a.{$f}"]],
+        'suffix key, reverse order' => ['addresses', fn ($f, $p, $v, $g, $b) => [["a.{$f}" => $row($f, $p, $v, $g), 'a' => $row($f, $p, $v, $b)], "a.{$f}"]],
+        'nested suffix key' => ['groups.*.items', fn ($f, $p, $v, $g, $b) => [['g' => ['items' => ['a' => $row($f, $p, $v, $b), "a.{$f}" => $row($f, $p, $v, $g)]]], "g.items.a.{$f}"]],
+        'literal placeholder twin first' => ['addresses', fn ($f, $p, $v, $g, $b) => [[TWIN => $row($f, $p, $v, $g), 'x.y' => $row($f, $p, $v, $b)], "x.y.{$f}"]],
+        'literal placeholder twin second' => ['addresses', fn ($f, $p, $v, $g, $b) => [['x.y' => $row($f, $p, $v, $g), TWIN => $row($f, $p, $v, $b)], TWIN . ".{$f}"]],
+    ];
+}
+
+dataset('parent aware rules', array_map(fn (array $r) => [$r], parentAwareRules()));
+dataset('borrowing cases', array_map(fn (array $c) => [$c[0], $c[1]], borrowingCases()));
+
+test('no row borrows another row\'s parent', function (string $style, array $rule, string $prefix, \Closure $case) {
+    [$f, $p, $v, $g, $b] = $rule;
+    [$rows, $badSuffix] = $case($f, $p, $v, $g, $b);
+    $root = explode('.', $prefix)[0];
+    $data = $root === 'groups' ? ['groups' => $rows] : ['addresses' => $rows];
+    $validator = Validator::make($data, ["{$prefix}.*.{$f}" => parentAwareRule($style, $f, "{$prefix}.*.{$p}")]);
+
+    $this->assertSame(["{$root}.{$badSuffix}"], array_keys($validator->errors()->toArray()));
+})->with('rule styles')->with('parent aware rules')->with('borrowing cases');
+
+test('wildcard parent checks stay linear in the row count', function () {
+    $rows = array_fill(0, 2000, VALID);
+    $time = function (array $rules) use ($rows): float {
+        $started = microtime(true);
+        $this->assertTrue(Validator::make(['addresses' => $rows], $rules)->passes());
+
+        return microtime(true) - $started;
+    };
+    // The same three fields with a rule that reads no other field.
+    $baseline = $time(['addresses.*.district' => ['string'], 'addresses.*.subdistrict' => ['string'], 'addresses.*.postal_code' => ['string']]);
+    $rules = $time([
+        'addresses.*.district' => [Rule::thaiDistrict()->inProvince('addresses.*.province')],
+        'addresses.*.subdistrict' => [Rule::thaiSubdistrict()->inDistrict('addresses.*.district')],
+        'addresses.*.postal_code' => [Rule::thaiPostalCode()->forSubdistrict('addresses.*.subdistrict')],
+    ]);
+    // Measured 1.8x at 2,000 rows (and 1.8-2.1x from 500 to 5,000 rows). The
+    // key scan this replaced was ~47x here (2,286 ms against 49 ms, PR #21
+    // review), and grows with the row count; 10x leaves room for a noisy CI.
+    $this->assertLessThan(10 * $baseline, $rules, sprintf('%.0f ms against a %.0f ms baseline', $rules * 1000, $baseline * 1000));
+});
+
+/*
+ * PR #21 security re-check: grouping a dotted key's segments cost the square
+ * of its dot count, so one ~40 KB key of 20,000 dots held a worker for 16 s
+ * (object rule) or 12.6 s at 10,000 (string rule, through its message
+ * replacer). The walk now stops past 64 segments and fails closed.
+ */
+test('a row key made of thousands of dots is rejected quickly', function (string $style) {
+    $key = implode('.', array_fill(0, 20001, 'a'));
+    $started = microtime(true);
+    $validator = Validator::make(['addresses' => [$key => ['province' => '10', 'district' => '5001']]], [
+        'addresses.*.district' => wildcardRules()[$style]['addresses.*.district'],
+    ]);
+    $this->assertTrue($validator->fails());
+    $validator->errors()->toArray(); // the string rules pick their message here
+    // Laravel alone takes ~0.01 s on this payload; the squared walk took 16 s.
+    $this->assertLessThan(1.0, microtime(true) - $started);
+})->with('rule styles');
