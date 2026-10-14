@@ -15,8 +15,19 @@
 - Three real cross-province codes, each a post office in the neighbouring
   province, are kept on an allowlist with the evidence from both sources.
 
+- The object validation rules (`Rule::thaiDistrict()->inProvince('addresses.*.province')`
+  and the subdistrict and postal-code ones) checked a wildcard parent against
+  the wrong row when an array key contained a dot, so `addresses[a.b][district]`
+  passed with a district outside `addresses[a.b][province]` (#20). The parent
+  is now found in the request data itself, and a wildcard parent that is
+  missing from the row fails instead of passing. The string rules gave such a
+  row the wrong message; that is fixed too.
+
 ### Added
 
+- `tools/generate.php --verify` checks every source against the sha256 in
+  `data/sources.json` and writes nothing. The generator no longer follows a
+  redirect from https to plain http.
 - A data test that every postal code belongs to its subdistrict's province,
   and pinned known codes.
 - `tools/review/postal-codes.csv`: every subdistrict where the two sources

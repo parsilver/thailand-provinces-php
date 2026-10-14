@@ -62,3 +62,25 @@ test('requests do not forge the web app headers', function () {
     }
     $this->assertNotContains('Content-Type: application/json', \Farzai\ThailandAddress\Tools\requestHeaders(false));
 });
+
+/** A redirect may not leave https: the sources would then arrive unauthenticated. */
+test('redirects stay on https', function () {
+    $target = fn (string $from, string $location) => \Farzai\ThailandAddress\Tools\redirectTarget($from, $location);
+    $this->assertSame('https://a.example/y', $target('https://a.example/x', 'https://a.example/y'));
+    $this->assertSame('https://a.example/z?q=1', $target('https://a.example/x/y', '/z?q=1'));
+    $this->assertSame('https://b.example/', $target('https://a.example/x', '//b.example/'));
+    $this->assertNull($target('https://a.example/x', 'http://a.example/x'), 'https -> http was followed');
+    $this->assertNull($target('https://a.example/x', 'ftp://a.example/x'));
+    $this->assertNull($target('https://a.example/x', ''));
+});
+
+test('verify compares fetched bytes with the manifest', function () {
+    $verify = fn (array $meta, array $manifest) => \Farzai\ThailandAddress\Tools\verifyAgainstManifest($meta, $manifest);
+    $manifest = ['sources' => ['dopa' => ['sha256' => 'aa'], 'mdes' => ['sha256' => 'bb']]];
+    $this->assertSame([], $verify(['dopa' => ['sha256' => 'aa'], 'mdes' => ['sha256' => 'bb']], $manifest));
+    $this->assertSame(
+        ['mdes: sha256 cc does not match bb in data/sources.json'],
+        $verify(['dopa' => ['sha256' => 'aa'], 'mdes' => ['sha256' => 'cc']], $manifest),
+    );
+    $this->assertSame(['iso: not in data/sources.json'], $verify(['iso' => ['sha256' => 'dd']], $manifest));
+});

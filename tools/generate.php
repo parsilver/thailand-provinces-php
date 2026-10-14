@@ -7,6 +7,8 @@
  *   php tools/generate.php --refresh    fetch every source again
  *   php tools/generate.php --offline    never touch the network
  *   php tools/generate.php --cache-dir=DIR
+ *   php tools/generate.php --verify      check every source against the sha256
+ *                                        in data/sources.json; write nothing
  *
  * Sources (see README "Data sources"):
  *   - DOPA ทำเนียบท้องที่ ccaatt.xlsx: codes, Thai and English names.
@@ -113,11 +115,14 @@ function main(array $args): void
     $root = dirname(__DIR__);
     $cacheDir = $root . '/tools/cache';
     $mode = 'cache';
+    $verify = false;
     foreach ($args as $arg) {
         if ($arg === '--refresh') {
             $mode = 'refresh';
         } elseif ($arg === '--offline') {
             $mode = 'offline';
+        } elseif ($arg === '--verify') {
+            $verify = true;
         } elseif (str_starts_with($arg, '--cache-dir=')) {
             $cacheDir = rtrim(substr($arg, 12), '/');
         } else {
@@ -132,6 +137,17 @@ function main(array $args): void
     $meta = [];
     foreach (SOURCES as $id => $source) {
         $meta[$id] = obtain($id, $source, $cacheDir, $mode);
+    }
+    if ($verify) {
+        $manifest = json_decode((string) file_get_contents("{$root}/data/sources.json"), true, flags: JSON_THROW_ON_ERROR);
+        $problems = verifyAgainstManifest($meta, $manifest);
+        foreach ($problems as $problem) {
+            out("MISMATCH {$problem}");
+        }
+        $problems === [] || fail(count($problems) . ' source(s) differ from data/sources.json');
+        out('verify: every source matches data/sources.json');
+
+        return;
     }
 
     [$asOf, $areas] = readDopa("{$cacheDir}/" . SOURCES['dopa_ccaatt']['file']);
@@ -232,10 +248,54 @@ function obtain(string $id, array $source, string $cacheDir, string $mode): arra
     return $meta;
 }
 
+/**
+ * The sources whose bytes differ from the sha256 recorded in
+ * data/sources.json, as messages; empty when all match.
+ *
+ * @param array<string, array{sha256: string}> $meta
+ * @param array{sources: array<string, array{sha256: string}>} $manifest
+ * @return list<string>
+ */
+function verifyAgainstManifest(array $meta, array $manifest): array
+{
+    $problems = [];
+    foreach ($meta as $id => $m) {
+        $expected = $manifest['sources'][$id]['sha256'] ?? null;
+        if ($expected === null) {
+            $problems[] = "{$id}: not in data/sources.json";
+        } elseif (!hash_equals($expected, $m['sha256'])) {
+            $problems[] = "{$id}: sha256 {$m['sha256']} does not match {$expected} in data/sources.json";
+        }
+    }
+
+    return $problems;
+}
+
+/**
+ * Where a redirect from $from to $location goes, or null when it must not be
+ * followed: anything but an https target, so a source is never downgraded to
+ * plain http on the way.
+ */
+function redirectTarget(string $from, string $location): ?string
+{
+    if ($location === '') {
+        return null;
+    }
+    if (str_starts_with($location, '//')) {
+        $location = 'https:' . $location;
+    } elseif (str_starts_with($location, '/')) {
+        $parts = parse_url($from);
+        $location = 'https://' . ($parts['host'] ?? '') . (isset($parts['port']) ? ':' . $parts['port'] : '') . $location;
+    }
+
+    return strtolower((string) parse_url($location, PHP_URL_SCHEME)) === 'https' ? $location : null;
+}
+
 /** @return array{int, array<string, string>, string} */
 function politeRequest(string $method, string $url, ?string $body): array
 {
     static $last = 0.0;
+    $redirects = 0;
     for ($attempt = 0; ; $attempt++) {
         $wait = $last + MIN_GAP_SECONDS + mt_rand(0, 1000) / 1000 - microtime(true);
         if ($wait > 0) {
@@ -247,7 +307,8 @@ function politeRequest(string $method, string $url, ?string $body): array
             'content' => $body ?? '',
             'timeout' => 120,
             'ignore_errors' => true,
-            'follow_location' => 1,
+            // Redirects are followed below, so a downgrade can be refused.
+            'follow_location' => 0,
         ]]);
         $content = @file_get_contents($url, false, $context);
         $last = microtime(true);
@@ -264,6 +325,17 @@ function politeRequest(string $method, string $url, ?string $body): array
             }
         }
         out("{$method} {$url} -> {$status}");
+        if (in_array($status, [301, 302, 303, 307, 308], true)) {
+            $target = redirectTarget($url, $parsed['location'] ?? '');
+            $target !== null || fail("{$url} redirects to " . ($parsed['location'] ?? '(nothing)') . ', which is not https. Stopping.');
+            ++$redirects <= 5 || fail("{$url}: more than 5 redirects");
+            $url = $target;
+            if ($status <= 303) {
+                [$method, $body] = ['GET', null];
+            }
+            $attempt--;
+            continue;
+        }
         if ($status === 200 && is_string($content)) {
             return [$status, $parsed, $content];
         }

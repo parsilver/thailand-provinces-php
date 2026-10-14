@@ -289,13 +289,15 @@ The generator is in the repository but not in the Composer package.
 php tools/generate.php              # use tools/cache/, fetch what is missing
 php tools/generate.php --refresh    # fetch every source again
 php tools/generate.php --offline    # rebuild from the cache only
+php tools/generate.php --verify     # check each source's sha256 against data/sources.json, write nothing
 ```
 
 It needs `ext-zip`, `ext-simplexml` and `ext-mbstring`. A run:
 
 1. Fetches the four sources into `tools/cache/`, one request each, at least
    2 seconds apart. Each request sends an honest User-Agent. On HTTP 401 or 403,
-   or on anything that looks like a block page, the run stops.
+   or on anything that looks like a block page, the run stops. A redirect is
+   followed only to another https URL; one to plain http stops the run.
 2. Keeps DOPA's active rows, adds each province's ISO 3166-2 code, and joins
    the postal codes:
    - Thailand Post by subdistrict code. A row is withheld when its name
