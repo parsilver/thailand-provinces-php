@@ -1,6 +1,20 @@
 # Changelog
 
-## 2.0.0 (unreleased)
+## 2.0.1 (unreleased)
+
+### Fixed
+
+- Unserializing a model whose code no longer exists still throws
+  `NotFoundException`, as in 2.0.0, but the message now names the model class
+  and the stale code, with the lookup's exception as the previous one. The
+  README now says so instead of calling models safe in queues and caches
+  without qualification.
+
+### Changed
+
+- `pestphp/pest-plugin-laravel` is no longer a dev dependency; no test used it.
+
+## 2.0.0 (2026-10-14)
 
 A rewrite. See "Upgrading from 1.x" in the README.
 
@@ -49,8 +63,18 @@ A rewrite. See "Upgrading from 1.x" in the README.
     facade;
   - validation rules as objects (`Rule::thaiDistrict()->inProvince('province')`)
     and as strings (`thai_district:province`), with English and Thai messages;
-  - Eloquent casts `AsProvince`, `AsDistrict` and `AsSubdistrict`.
+  - Eloquent casts `AsProvince`, `AsDistrict` and `AsSubdistrict`. Setting an
+    unknown code throws; reading a stored code that no longer exists gives
+    `null`; setting `''` (a blank form field) or `null` clears the column.
 - `Thailand::search()` across every level, and `Thailand::postalCode()`.
+- Each level's data loads on first use, once per process: a province lookup
+  reads only the provinces file, never the 7,436 subdistricts.
+- Models serialize as their code and are rebuilt through
+  `Thailand::repository()` when read back, so a queued job or cache entry
+  holds a few dozen bytes instead of the data set.
+- `Thailand::swap()` replaces the repository for tests. Inside Laravel it
+  rebinds the container's `AddressRepository`, so the facade, the casts and
+  the rules all see the swapped one.
 - `Province::$isoCode` (ISO 3166-2:TH, e.g. `TH-10`).
 - `Subdistrict::toAddress()` and `Address`, which use the libaddressinput /
   CLDR names (`administrativeArea`, `locality`, `dependentLocality`,
