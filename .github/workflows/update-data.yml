@@ -5,7 +5,7 @@
 # Two jobs, so third-party code never runs next to a write token (security
 # review on #22):
 # - import (contents: read): checks for a newer snapshot, imports it
-#   (tools/import-snapshot.php verifies it first) and hands the data files on
+#   (tools/generate.php verifies it first) and hands the data files on
 #   at once, BEFORE any third-party code runs. Only then does it install
 #   dependencies and run the suite, whose log goes on as a separate artifact.
 #   The checkout keeps no token on disk.
@@ -109,7 +109,7 @@ jobs:
         if: steps.check.outputs.skip == 'false'
         env:
           TARGET: ${{ steps.check.outputs.target }}
-        run: php tools/import-snapshot.php --snapshot="$TARGET" --summary=pr.md
+        run: php tools/generate.php --snapshot="$TARGET" --summary=pr.md
 
       # Before Composer: plugins and the code pest loads are third-party, and
       # nothing they do after this point can reach what open-pr commits.
