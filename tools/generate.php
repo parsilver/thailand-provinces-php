@@ -8,9 +8,11 @@
  *   php tools/generate.php --offline    never touch the network
  *   php tools/generate.php --cache-dir=DIR
  *   php tools/generate.php --verify      check every source against the sha256
- *                                        in data/sources.json; write nothing.
- *                                        Checks the cached copies; add --refresh
- *                                        to check what the sources serve today.
+ *                                        in data/sources.json; data/ is not
+ *                                        written. Checks the cached copies; add
+ *                                        --refresh to check what the sources
+ *                                        serve today (that re-fetches into
+ *                                        tools/cache/).
  *
  * Sources (see README "Data sources"):
  *   - DOPA ทำเนียบท้องที่ ccaatt.xlsx: codes, Thai and English names.

@@ -301,3 +301,21 @@ test('wildcard parent checks stay linear in the row count', function () {
     // review), and grows with the row count; 10x leaves room for a noisy CI.
     $this->assertLessThan(10 * $baseline, $rules, sprintf('%.0f ms against a %.0f ms baseline', $rules * 1000, $baseline * 1000));
 });
+
+/*
+ * PR #21 security re-check: grouping a dotted key's segments cost the square
+ * of its dot count, so one ~40 KB key of 20,000 dots held a worker for 16 s
+ * (object rule) or 12.6 s at 10,000 (string rule, through its message
+ * replacer). The walk now stops past 64 segments and fails closed.
+ */
+test('a row key made of thousands of dots is rejected quickly', function (string $style) {
+    $key = implode('.', array_fill(0, 20001, 'a'));
+    $started = microtime(true);
+    $validator = Validator::make(['addresses' => [$key => ['province' => '10', 'district' => '5001']]], [
+        'addresses.*.district' => wildcardRules()[$style]['addresses.*.district'],
+    ]);
+    $this->assertTrue($validator->fails());
+    $validator->errors()->toArray(); // the string rules pick their message here
+    // Laravel alone takes ~0.01 s on this payload; the squared walk took 16 s.
+    $this->assertLessThan(1.0, microtime(true) - $started);
+})->with('rule styles');

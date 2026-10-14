@@ -24,6 +24,9 @@ use Illuminate\Validation\Validator;
  */
 abstract class AreaRule implements ValidationRule, DataAwareRule, ValidatorAwareRule
 {
+    /** Deeper attribute paths than this are refused (fail closed); no form nests so deep. */
+    private const MAX_SEGMENTS = 64;
+
     /** @var array<string, mixed> */
     protected array $data = [];
 
@@ -196,6 +199,11 @@ abstract class AreaRule implements ValidationRule, DataAwareRule, ValidatorAware
      */
     private function dataKeys(array $data, string $attribute): ?array
     {
+        // A path no form has: refuse it before grouping, which tries up to
+        // n spans per level. One 20,000-dot key took 16 s before this cap.
+        if (substr_count($attribute, '.') >= self::MAX_SEGMENTS) {
+            return null;
+        }
         $segments = explode('.', $attribute);
         $hash = $this->placeholderHash();
         $found = [];
@@ -214,11 +222,12 @@ abstract class AreaRule implements ValidationRule, DataAwareRule, ValidatorAware
                 return;
             }
             $last = $hash === null ? $from + 1 : count($segments);
+            $key = '';
             for ($to = $from + 1; $to <= $last; $to++) {
-                $key = implode('.', array_slice($segments, $from, $to - $from));
-                if ($hash !== null) {
-                    $key = str_replace(['.', '*'], ['__dot__' . $hash, '__asterisk__' . $hash], $key);
-                }
+                // The key spanning segments $from..$to-1, grown by one segment
+                // each step, escaped as Laravel escapes data keys.
+                $segment = $hash === null ? $segments[$to - 1] : str_replace('*', '__asterisk__' . $hash, $segments[$to - 1]);
+                $key = $to === $from + 1 ? $segment : $key . '__dot__' . $hash . $segment;
                 if (array_key_exists($key, $node)) {
                     $walk($node[$key], $to, [...$keys, $key]);
                 }
@@ -242,6 +251,11 @@ abstract class AreaRule implements ValidationRule, DataAwareRule, ValidatorAware
         if ($this->validator === null) {
             return null;
         }
+        // A protected static of Laravel's Validator. If a Laravel release
+        // renames or removes it, this reads null: the attribute is then taken
+        // as already escaped, a dotted row key matches no data key, and its
+        // rule fails closed instead of passing. The dotted-key tests in
+        // ValidationTest would turn red in CI.
 
         return \Closure::bind(static fn (): ?string => Validator::$placeholderHash ?? null, null, Validator::class)();
     }

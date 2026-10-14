@@ -26,7 +26,7 @@
 ### Added
 
 - `tools/generate.php --verify` checks every source against the sha256 in
-  `data/sources.json` and writes nothing. The generator no longer follows a
+  `data/sources.json` without writing `data/`. The generator no longer follows a
   redirect from https to plain http.
 - A data test that every postal code belongs to its subdistrict's province,
   and pinned known codes.
