@@ -282,15 +282,22 @@ test('no row borrows another row\'s parent', function (string $style, array $rul
 })->with('rule styles')->with('parent aware rules')->with('borrowing cases');
 
 test('wildcard parent checks stay linear in the row count', function () {
-    $rows = array_fill(0, 5000, VALID);
-    $rules = [
+    $rows = array_fill(0, 2000, VALID);
+    $time = function (array $rules) use ($rows): float {
+        $started = microtime(true);
+        $this->assertTrue(Validator::make(['addresses' => $rows], $rules)->passes());
+
+        return microtime(true) - $started;
+    };
+    // The same three fields with a rule that reads no other field.
+    $baseline = $time(['addresses.*.district' => ['string'], 'addresses.*.subdistrict' => ['string'], 'addresses.*.postal_code' => ['string']]);
+    $rules = $time([
         'addresses.*.district' => [Rule::thaiDistrict()->inProvince('addresses.*.province')],
         'addresses.*.subdistrict' => [Rule::thaiSubdistrict()->inDistrict('addresses.*.district')],
         'addresses.*.postal_code' => [Rule::thaiPostalCode()->forSubdistrict('addresses.*.subdistrict')],
-    ];
-    $started = microtime(true);
-    $this->assertTrue(Validator::make(['addresses' => $rows], $rules)->passes());
-    // Quadratic key scanning took ~2.3 s at 2,000 rows (PR #21 review), so
-    // ~14 s at 5,000; a linear walk is well under this bound.
-    $this->assertLessThan(8.0, microtime(true) - $started);
+    ]);
+    // Measured 1.8x at 2,000 rows (and 1.8-2.1x from 500 to 5,000 rows). The
+    // key scan this replaced was ~47x here (2,286 ms against 49 ms, PR #21
+    // review), and grows with the row count; 10x leaves room for a noisy CI.
+    $this->assertLessThan(10 * $baseline, $rules, sprintf('%.0f ms against a %.0f ms baseline', $rules * 1000, $baseline * 1000));
 });
