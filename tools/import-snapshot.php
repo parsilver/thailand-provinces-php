@@ -16,7 +16,14 @@
  *   v1/snapshots.json;
  * - its manifest must match the sha256 the index records;
  * - every file must match its manifest entry;
- * - every file must be schema v1.
+ * - every file must carry a schema v1 envelope for this snapshot;
+ * - every row the importer reads must have the shape it expects (digit codes
+ *   of the right length, five-digit postal codes, a Thai name, a known status
+ *   and kind), so a malformed file cannot reach data/.
+ *
+ * Verified means self-consistent: the files agree with the index and the
+ * manifest. It does not prove the pipeline published them; that needs a trust
+ * anchor outside the bucket (follow-up issue on artifact attestation).
  *
  * data/ keeps the library's own shape: active areas only, and a Bangkok khet
  * keeps the "เขต" the library has always shipped in name_th. Not shipped in
@@ -105,6 +112,9 @@ function importSnapshot(string $base, ?string $snapshot, string $root): array
             || throw new \RuntimeException("{$snapshot}/{$file}.json is not a schema v1 file of this snapshot");
         $rows[$file] = $json['data'];
     }
+    foreach (['provinces', 'districts', 'subdistricts', 'postal_codes'] as $file) {
+        $rows[$file] = validRows($file, $rows[$file]);
+    }
 
     $active = fn (array $list) => array_filter($list, fn (array $r) => ($r['status'] ?? null) === 'active');
     $provinces = [];
@@ -158,7 +168,7 @@ function summary(string $snapshot, array $manifest, array $changes): string
 {
     $counts = ['added' => 0, 'renamed' => 0, 'abolished' => 0, 'postal_codes_changed' => 0];
     foreach ($changes as $c) {
-        $counts[$c['change']] = ($counts[$c['change']] ?? 0) + 1;
+        isset($counts[$c['change'] ?? null]) && $counts[$c['change']]++;
     }
     $out = "Updates `data/` to snapshot [`{$snapshot}`](" . PUBLIC_BASE . "/thailand-address/v1/{$snapshot}/manifest.json) of the Thai address dataset";
     $out .= ($manifest['previous_snapshot'] ?? null) !== null ? ", against `{$manifest['previous_snapshot']}`.\n\n" : ".\n\n";
@@ -168,14 +178,67 @@ function summary(string $snapshot, array $manifest, array $changes): string
     }
     if ($changes !== []) {
         $out .= "\n<details><summary>First " . min(100, count($changes)) . ' of ' . count($changes) . " changes</summary>\n\n| level | code | change | before | after |\n|---|---|---|---|---|\n";
+        // Every cell is text from the bucket, so it is escaped rather than put
+        // in a code span: a backtick in the data would close the span and let
+        // links, images and HTML render in the pull request.
         foreach (array_slice($changes, 0, 100) as $c) {
-            $out .= sprintf("| %s | %s | %s | `%s` | `%s` |\n", $c['level'], $c['code'], $c['change'], json_encode($c['before'], JSON_UNESCAPED_UNICODE), json_encode($c['after'], JSON_UNESCAPED_UNICODE));
+            $cells = [$c['level'] ?? '', $c['code'] ?? '', $c['change'] ?? '', json_encode($c['before'] ?? null, JSON_UNESCAPED_UNICODE), json_encode($c['after'] ?? null, JSON_UNESCAPED_UNICODE)];
+            $out .= '| ' . implode(' | ', array_map(fn ($v) => markdownCell(is_string($v) ? $v : (string) json_encode($v)), $cells)) . " |\n";
         }
         $out .= "\n</details>\n";
     }
     $out .= "\nEvery file was checked against the snapshot's manifest, and the manifest against the sha256 in `v1/snapshots.json`. The workflow ran the test suite on the result before opening this PR. It is never merged automatically.\n";
 
     return $out;
+}
+
+/** Escapes text for one Markdown table cell: no column break, no link, image, code or HTML. */
+function markdownCell(string $text): string
+{
+    $text = str_replace(["\r\n", "\r", "\n"], ' ', $text);
+    // HTML first, as entities, so a tag never reaches the renderer at all.
+    $text = str_replace(['&', '<', '>'], ['&amp;', '&lt;', '&gt;'], $text);
+
+    return (string) preg_replace('/([\\\\`*_{}\[\]()#+!|~-])/', '\\\\$1', $text);
+}
+
+/**
+ * The rows of one data file, refused unless each has the shape the importer
+ * writes from.
+ *
+ * @param mixed $rows
+ * @return list<array<string, mixed>>
+ */
+function validRows(string $file, mixed $rows): array
+{
+    is_array($rows) && array_is_list($rows) || throw new \RuntimeException("{$file}.json: data is not a list");
+    $codeLength = ['provinces' => 2, 'districts' => 4, 'subdistricts' => 6];
+    $kinds = [
+        'provinces' => ['province', 'special_administrative_area'],
+        'districts' => ['amphoe', 'khet'],
+        'subdistricts' => ['tambon', 'khwaeng'],
+        'postal_codes' => ['standard', 'facility'],
+    ];
+    foreach ($rows as $i => $r) {
+        $bad = fn (string $why) => throw new \RuntimeException("{$file}.json row {$i}: {$why}");
+        is_array($r) || $bad('not an object');
+        in_array($r['status'] ?? null, ['active', 'abolished'], true) || $bad('status is not active or abolished');
+        in_array($r['kind'] ?? null, $kinds[$file], true) || $bad('unknown kind');
+        if ($file === 'postal_codes') {
+            is_string($r['postal_code'] ?? null) && preg_match('/^\d{5}$/', $r['postal_code']) === 1 || $bad('postal_code is not five digits');
+            is_string($r['subdistrict_code'] ?? null) && preg_match('/^\d{6}$/', $r['subdistrict_code']) === 1 || $bad('subdistrict_code is not six digits');
+            continue;
+        }
+        is_string($r['code'] ?? null) && preg_match('/^\d{' . $codeLength[$file] . '}$/', $r['code']) === 1 || $bad("code is not {$codeLength[$file]} digits");
+        is_string($r['name']['th'] ?? null) && trim($r['name']['th']) !== '' || $bad('no Thai name');
+        $en = $r['name']['en'] ?? null;
+        $en === null || is_string($en) || $bad('name.en is not a string or null');
+        if ($file === 'provinces') {
+            is_string($r['iso_code'] ?? null) && preg_match('/^TH-[0-9A-Z]{1,3}$/', $r['iso_code']) === 1 || $bad('iso_code is not TH-');
+        }
+    }
+
+    return $rows;
 }
 
 function get(string $url): string

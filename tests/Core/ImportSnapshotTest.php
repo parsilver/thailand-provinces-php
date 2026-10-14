@@ -157,3 +157,36 @@ test('only https, or http to a local test server, and only a valid snapshot id',
     expect(fn () => importSnapshot('http://data.farzai.com', null, $this->root))->toThrow(InvalidArgumentException::class);
     expect(fn () => importSnapshot($this->base, '../etc', $this->root))->toThrow(InvalidArgumentException::class);
 });
+
+test('a row of the wrong shape stops the import before anything is written', function (string $file, Closure $break, string $message) {
+    $id = '2026-11-01';
+    writeSnapshot($this->cdn, $id);
+    $rows = json_decode((string) file_get_contents("{$this->cdn}/thailand-address/v1/{$id}/{$file}"), true)['data'];
+    writeSnapshot($this->cdn, $id, [], [$file => envelopeJson($id, $break($rows))]);
+    expect(fn () => importSnapshot($this->base, null, $this->root))->toThrow(RuntimeException::class, $message);
+    $this->assertFileDoesNotExist("{$this->root}/data/provinces.php");
+    $this->assertFileDoesNotExist("{$this->root}/data/sources.json");
+})->with([
+    'a province code that is not two digits' => ['provinces.json', fn (array $r) => [['code' => '1'] + $r[0], $r[1]], 'provinces.json'],
+    'an ISO code that is not TH-' => ['provinces.json', fn (array $r) => [['iso_code' => 'XX'] + $r[0], $r[1]], 'provinces.json'],
+    'a district code of the wrong length' => ['districts.json', fn (array $r) => [['code' => '10011'] + $r[0], ...array_slice($r, 1)], 'districts.json'],
+    'a subdistrict with no Thai name' => ['subdistricts.json', fn (array $r) => [['name' => ['th' => '', 'en' => null]] + $r[0], ...array_slice($r, 1)], 'subdistricts.json'],
+    'an English name that is not a string' => ['subdistricts.json', fn (array $r) => [['name' => ['th' => 'x', 'en' => ['x']]] + $r[0], ...array_slice($r, 1)], 'subdistricts.json'],
+    'a postal code that is not five digits' => ['postal_codes.json', fn (array $r) => [['postal_code' => '1020'] + $r[0], ...array_slice($r, 1)], 'postal_codes.json'],
+    'an unknown status' => ['postal_codes.json', fn (array $r) => [['status' => 'gone'] + $r[0], ...array_slice($r, 1)], 'postal_codes.json'],
+    'an unknown district kind' => ['districts.json', fn (array $r) => [['kind' => 'county'] + $r[0], ...array_slice($r, 1)], 'districts.json'],
+]);
+
+test('the pull request body escapes everything that comes from changes.json', function () {
+    $id = '2026-11-01';
+    writeSnapshot($this->cdn, $id, [], ['changes.json' => envelopeJson($id, [
+        ['level' => 'subdistrict', 'code' => '500101', 'change' => 'renamed', 'before' => ['name' => ['th' => 'a', 'en' => 'x']], 'after' => ['name' => ['th' => 'b', 'en' => '![p](https://evil.example/p.png) [click](https://evil.example) `x` | y <img src=x>']], 'effective_on' => null],
+    ])]);
+    $summary = importSnapshot($this->base, null, $this->root)['summary'];
+    $this->assertStringNotContainsString('![p](', $summary);
+    $this->assertStringNotContainsString('[click](', $summary);
+    $this->assertStringNotContainsString('<img', $summary);
+    $this->assertStringNotContainsString('`x`', $summary);
+    $row = array_values(array_filter(explode("\n", $summary), fn (string $l) => str_starts_with($l, '| subdistrict')))[0];
+    $this->assertSame(6, substr_count(str_replace('\\|', '', $row), '|'), 'a | in the data does not add a table column');
+});
