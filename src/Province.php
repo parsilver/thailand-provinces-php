@@ -44,4 +44,15 @@ final class Province extends Model
     {
         return [];
     }
+
+    protected static function lookup(AddressRepository $repository, string $code): static
+    {
+        return $repository->provinceOrFail($code);
+    }
+
+    protected function restoreFrom(Model $source): void
+    {
+        assert($source instanceof self);
+        $this->isoCode = $source->isoCode;
+    }
 }

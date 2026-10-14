@@ -226,15 +226,9 @@ function politeRequest(string $method, string $url, ?string $body): array
         if ($wait > 0) {
             usleep((int) ($wait * 1_000_000));
         }
-        $headers = ['User-Agent: ' . USER_AGENT, 'Accept: */*'];
-        if ($body !== null) {
-            $headers[] = 'Content-Type: application/json';
-            $headers[] = 'X-Requested-With: XMLHttpRequest';
-            $headers[] = 'Origin: https://track.thailandpost.co.th';
-        }
         $context = stream_context_create(['http' => [
             'method' => $method,
-            'header' => implode("\r\n", $headers),
+            'header' => implode("\r\n", requestHeaders($body !== null)),
             'content' => $body ?? '',
             'timeout' => 120,
             'ignore_errors' => true,
@@ -267,6 +261,24 @@ function politeRequest(string $method, string $url, ?string $body): array
         $attempt < 3 || fail("{$url}: giving up after 3 retries");
         sleep(2 ** ($attempt + 2));
     }
+}
+
+/**
+ * The headers of every request: an honest User-Agent, and a content type for a
+ * POST body. No Origin or X-Requested-With: Thailand Post's getSubdistrict was
+ * tested without them on 2026-10-14 and answered 200 with a byte-identical
+ * body (sha256 ccbff60f...), so the generator does not pose as its web app.
+ *
+ * @return list<string>
+ */
+function requestHeaders(bool $hasBody): array
+{
+    $headers = ['User-Agent: ' . USER_AGENT, 'Accept: */*'];
+    if ($hasBody) {
+        $headers[] = 'Content-Type: application/json';
+    }
+
+    return $headers;
 }
 
 /**

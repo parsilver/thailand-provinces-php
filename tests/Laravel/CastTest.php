@@ -52,6 +52,23 @@ final class CastTest extends TestCase
         $this->assertSame(['province_code' => '38', 'district_code' => '3801', 'subdistrict_code' => '380101'], $model->getAttributes());
     }
 
+    /** Review #2: a stored code that no longer exists reads back as null. */
+    public function test_reads_an_unknown_stored_code_as_null(): void
+    {
+        $model = $this->model()->newFromBuilder(['province_code' => '99', 'district_code' => '9999', 'subdistrict_code' => '999999']);
+        $this->assertNull($model->province_code);
+        $this->assertNull($model->district_code);
+        $this->assertNull($model->subdistrict_code);
+    }
+
+    /** Review #5: an empty string, as a blank form field sends it, clears the column. */
+    public function test_empty_string_clears_the_column(): void
+    {
+        $model = $this->model();
+        $model->province_code = '';
+        $this->assertSame(['province_code' => null], $model->getAttributes());
+    }
+
     public function test_reads_a_row_from_the_database_shape(): void
     {
         $model = $this->model()->newFromBuilder(['province_code' => '38', 'district_code' => null, 'subdistrict_code' => '']);

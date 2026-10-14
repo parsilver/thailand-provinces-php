@@ -13,9 +13,10 @@ use Illuminate\Support\Collection;
  *   Thailand::subdistrict('100101')->district->province->nameTh;
  *
  * Every call goes to one AddressRepository: the one given to swap(), else the
- * one the resolver returns (Laravel's service provider resolves the container's
- * singleton, so a fake bound there reaches this class too), else a default
- * created on first use.
+ * one the resolver returns, else a default created on first use. Laravel's
+ * service provider installs a resolver that reads the container's singleton and
+ * a swap handler that rebinds it, so swap() there reaches the container, the
+ * ThailandAddress facade, the rules and the casts alike.
  */
 final class Thailand
 {
@@ -23,6 +24,9 @@ final class Thailand
 
     /** @var (\Closure(): AddressRepository)|null */
     private static ?\Closure $resolver = null;
+
+    /** @var (\Closure(?AddressRepository): void)|null */
+    private static ?\Closure $swapHandler = null;
 
     public static function repository(): AddressRepository
     {
@@ -36,13 +40,22 @@ final class Thailand
     /** Use this repository, e.g. AddressRepository::fromArrays(...) in a test; null goes back to the resolver or the default. */
     public static function swap(?AddressRepository $repository): void
     {
+        if (self::$swapHandler !== null) {
+            (self::$swapHandler)($repository);
+
+            return;
+        }
         self::$repository = $repository;
     }
 
-    /** @param (\Closure(): AddressRepository)|null $resolver how to find the repository when none was swapped in */
-    public static function resolveUsing(?\Closure $resolver): void
+    /**
+     * @param (\Closure(): AddressRepository)|null $resolver how to find the repository when none was swapped in
+     * @param (\Closure(?AddressRepository): void)|null $onSwap what swap() does instead of holding the repository itself
+     */
+    public static function resolveUsing(?\Closure $resolver, ?\Closure $onSwap = null): void
     {
         self::$resolver = $resolver;
+        self::$swapHandler = $onSwap;
         self::$repository = null;
     }
 

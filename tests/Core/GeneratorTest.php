@@ -68,4 +68,17 @@ final class GeneratorTest extends TestCase
         $decoded = json_decode(base64_decode(implode('', $chunks)), true);
         $this->assertSame(['data' => '{"flag":"0"}', 'd' => null], $decoded);
     }
+
+    /** Review #7: an honest User-Agent and nothing that poses as Thailand Post's own web app. */
+    public function test_requests_do_not_forge_the_web_app_headers(): void
+    {
+        $post = \Farzai\ThailandAddress\Tools\requestHeaders(true);
+        $this->assertContains('User-Agent: ' . \Farzai\ThailandAddress\Tools\USER_AGENT, $post);
+        $this->assertContains('Content-Type: application/json', $post);
+        foreach ($post as $header) {
+            $this->assertStringStartsNotWith('Origin:', $header);
+            $this->assertStringStartsNotWith('X-Requested-With:', $header);
+        }
+        $this->assertNotContains('Content-Type: application/json', \Farzai\ThailandAddress\Tools\requestHeaders(false));
+    }
 }

@@ -10,8 +10,11 @@ use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * Stores an area's DOPA code and reads it back as the model. Setting an unknown
- * code, or reading one back, throws, as Laravel's enum casts do.
+ * Stores an area's DOPA code and reads it back as the model.
+ *
+ * Setting an unknown code throws, as Laravel's enum casts do. Reading one back
+ * gives null: a stored code can stop existing when DOPA abolishes an area and
+ * the data is refreshed, and a row read must not fail over it.
  *
  * @template T of Area
  * @implements CastsAttributes<T|null, T|string|int|null>
@@ -34,13 +37,14 @@ abstract class AreaCast implements CastsAttributes
             return null;
         }
 
-        return Thailand::repository()->{$this->level() . 'OrFail'}((string) $value);
+        return Thailand::repository()->{$this->level()}((string) $value);
     }
 
     /** @param array<string, mixed> $attributes */
     public function set(Model $model, string $key, mixed $value, array $attributes): ?string
     {
-        if ($value === null) {
+        // An empty string is what a blank form field submits: no area.
+        if ($value === null || $value === '') {
             return null;
         }
         if ($value instanceof Area) {

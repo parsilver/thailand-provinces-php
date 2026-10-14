@@ -113,8 +113,11 @@ $customer->subdistrict_code->district->province->nameTh; // 'กรุงเท�
 
 - **Storage.** The column stores the code as a string. Reading it back gives
   the model.
-- **Unknown codes.** Setting or reading an unknown code throws
-  `NotFoundException`, as Laravel's enum casts do.
+- **Unknown codes.** Setting an unknown code throws `NotFoundException`, as
+  Laravel's enum casts do. Reading one back gives `null`: a stored code can
+  stop existing when DOPA abolishes an area, and a row read must not fail.
+- **Blank input.** Setting `''` (a blank form field) or `null` clears the
+  column.
 - **Wrong level.** Setting a model of the wrong level throws
   `InvalidArgumentException`.
 
@@ -171,7 +174,11 @@ $address->inLocale('en')->toArray();            // the same, with English names
   implement `Arrayable` and `JsonSerializable`.
 - **Lookups.** Every lookup takes a code as a string or an int. A miss gives
   `null`, or an empty collection.
-- **Loading.** The data loads on first use, once per process.
+- **Loading.** Each level's data loads on first use, once per process: a
+  province lookup reads only the 77 provinces, not the 7,436 subdistricts.
+- **Serializing.** A model serializes as its code (a few dozen bytes) and is
+  rebuilt through `Thailand::repository()` when read back, so models are safe
+  in queued jobs and caches. `var_dump()` shows the model's fields.
 
 ### Testing with a fake
 
@@ -190,9 +197,10 @@ Thailand::swap(AddressRepository::fromArrays(
 Thailand::swap(null); // back to the real data
 ```
 
-In Laravel, `ThailandAddress::swap($fake)` (or binding the fake to
-`AddressRepository::class`) is enough: `Thailand`, the facade, the validation
-rules and the casts all read the container's repository.
+In Laravel, any one of `Thailand::swap($fake)`, `ThailandAddress::swap($fake)`
+or binding the fake to `AddressRepository::class` is enough: `Thailand`, the
+facade, the validation rules and the casts all read the container's
+repository, and `Thailand::swap()` rebinds it there.
 
 ### Codes
 

@@ -12,16 +12,17 @@ use Illuminate\Support\Collection;
  * by postal code and by name. Thailand is a static facade over one instance;
  * in Laravel the container holds that instance as a singleton.
  *
- * Rows are read from the generated data files on first use, once per process,
- * and models are built once per repository.
+ * Each level's data file is read on first use of that level, once per
+ * process, so a province lookup never loads the 7,436 subdistricts. Models are
+ * built once per repository.
  */
 class AddressRepository
 {
-    /** @var array<string, array{provinces: array<array-key, array<string, mixed>>, districts: array<array-key, array<string, mixed>>, subdistricts: array<array-key, array<string, mixed>>}> raw rows by data directory */
+    /** @var array<string, array<string, array<array-key, array<string, mixed>>>> raw rows by data file path */
     private static array $files = [];
 
-    /** @var array{provinces: array<array-key, array<string, mixed>>, districts: array<array-key, array<string, mixed>>, subdistricts: array<array-key, array<string, mixed>>}|null */
-    private ?array $rows;
+    /** @var array<string, array<array-key, array<string, mixed>>> raw rows by level, filled per level on first use */
+    private array $rows = [];
 
     /** @var array<string, Province>|null */
     private ?array $provinces = null;
@@ -32,15 +33,14 @@ class AddressRepository
     /** @var array<string, Subdistrict>|null */
     private ?array $subdistricts = null;
 
-    /** @var array<string, list<string>>|null child codes by parent code */
-    private ?array $children = null;
+    /** @var array<string, array<string, list<string>>> child codes by parent code, per child level */
+    private array $children = [];
 
     /** @var array<string, list<string>>|null subdistrict codes by postal code */
     private ?array $byPostalCode = null;
 
     public function __construct(private readonly ?string $dataPath = null)
     {
-        $this->rows = null;
     }
 
     /**
@@ -118,7 +118,7 @@ class AddressRepository
     {
         $code = $province instanceof Province ? $province->code : (string) $province;
 
-        return $this->pick($this->districtIndex(), $this->childIndex()[$code] ?? []);
+        return $this->pick($this->districtIndex(), $this->childIndex('districts')[$code] ?? []);
     }
 
     /** @return Collection<int, Subdistrict> the subdistricts of a district; empty for an unknown one */
@@ -126,7 +126,7 @@ class AddressRepository
     {
         $code = $district instanceof District ? $district->code : (string) $district;
 
-        return $this->pick($this->subdistrictIndex(), $this->childIndex()[$code] ?? []);
+        return $this->pick($this->subdistrictIndex(), $this->childIndex('subdistricts')[$code] ?? []);
     }
 
     /** @return Collection<int, Subdistrict> the subdistricts a postal code serves; empty for an unknown one */
@@ -190,7 +190,7 @@ class AddressRepository
     {
         if ($this->provinces === null) {
             $this->provinces = [];
-            foreach ($this->rows()['provinces'] as $code => $row) {
+            foreach ($this->rows('provinces') as $code => $row) {
                 $code = (string) $code;
                 $this->provinces[$code] = new Province($this, $code, $row['name_th'], $row['name_en'], $row['iso_code']);
             }
@@ -204,7 +204,7 @@ class AddressRepository
     {
         if ($this->districts === null) {
             $this->districts = [];
-            foreach ($this->rows()['districts'] as $code => $row) {
+            foreach ($this->rows('districts') as $code => $row) {
                 $code = (string) $code;
                 $this->districts[$code] = new District($this, $code, $row['name_th'], $row['name_en'], substr($code, 0, 2));
             }
@@ -218,7 +218,7 @@ class AddressRepository
     {
         if ($this->subdistricts === null) {
             $this->subdistricts = [];
-            foreach ($this->rows()['subdistricts'] as $code => $row) {
+            foreach ($this->rows('subdistricts') as $code => $row) {
                 $code = (string) $code;
                 $this->subdistricts[$code] = new Subdistrict($this, $code, $row['name_th'], $row['name_en'], substr($code, 0, 4), substr($code, 0, 2), $row['postal_codes']);
             }
@@ -227,33 +227,40 @@ class AddressRepository
         return $this->subdistricts;
     }
 
-    /** @return array<string, list<string>> */
-    private function childIndex(): array
+    /**
+     * Child codes by parent code for one child level: a code's parent is the
+     * code without its last two digits.
+     *
+     * @param 'districts'|'subdistricts' $level
+     * @return array<string, list<string>>
+     */
+    private function childIndex(string $level): array
     {
-        if ($this->children === null) {
+        if (!isset($this->children[$level])) {
             $index = [];
-            foreach ([...array_keys($this->rows()['districts']), ...array_keys($this->rows()['subdistricts'])] as $code) {
+            foreach (array_keys($this->rows($level)) as $code) {
                 $code = (string) $code;
                 $index[substr($code, 0, -2)][] = $code;
             }
-            $this->children = $index;
+            $this->children[$level] = $index;
         }
 
-        return $this->children;
+        return $this->children[$level];
     }
 
-    /** @return array{provinces: array<array-key, array<string, mixed>>, districts: array<array-key, array<string, mixed>>, subdistricts: array<array-key, array<string, mixed>>} */
-    private function rows(): array
+    /**
+     * One level's raw rows, read from its data file on first use.
+     *
+     * @param 'provinces'|'districts'|'subdistricts' $level
+     * @return array<array-key, array<string, mixed>>
+     */
+    private function rows(string $level): array
     {
-        if ($this->rows === null) {
-            $path = $this->dataPath ?? dirname(__DIR__) . '/data';
-            $this->rows = self::$files[$path] ??= [
-                'provinces' => require $path . '/provinces.php',
-                'districts' => require $path . '/districts.php',
-                'subdistricts' => require $path . '/subdistricts.php',
-            ];
+        if (!isset($this->rows[$level])) {
+            $file = ($this->dataPath ?? dirname(__DIR__) . '/data') . '/' . $level . '.php';
+            $this->rows[$level] = self::$files[$file] ??= require $file;
         }
 
-        return $this->rows;
+        return $this->rows[$level];
     }
 }

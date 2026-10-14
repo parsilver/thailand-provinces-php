@@ -79,4 +79,17 @@ final class Subdistrict extends Model
     {
         return ['district', 'province'];
     }
+
+    protected static function lookup(AddressRepository $repository, string $code): static
+    {
+        return $repository->subdistrictOrFail($code);
+    }
+
+    protected function restoreFrom(Model $source): void
+    {
+        assert($source instanceof self);
+        $this->districtCode = $source->districtCode;
+        $this->provinceCode = $source->provinceCode;
+        $this->postalCodes = $source->postalCodes;
+    }
 }

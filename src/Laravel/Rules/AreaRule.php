@@ -116,7 +116,8 @@ abstract class AreaRule implements ValidationRule, DataAwareRule, ValidatorAware
         return implode('.', $segments);
     }
 
-    protected function otherName(string $attribute): string
+    /** The parent field's display name for this attribute, its wildcards resolved. */
+    public function otherName(string $attribute): string
     {
         if ($this->parentField === null) {
             return '';

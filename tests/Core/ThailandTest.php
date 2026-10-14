@@ -214,4 +214,24 @@ final class ThailandTest extends TestCase
         $this->assertSame($a->province('10'), $a->province('10'));
         $this->assertEquals((new AddressRepository())->province('10')->toArray(), $a->province('10')->toArray());
     }
+
+    /** Review #1: a model serializes as its code, not the whole repository. */
+    public function test_models_serialize_by_code(): void
+    {
+        foreach ([Thailand::province('10'), Thailand::district('1001'), Thailand::subdistrict('100101')] as $model) {
+            $bytes = serialize($model);
+            $this->assertLessThan(200, strlen($bytes), $model::class . ' serialized to ' . strlen($bytes) . ' bytes');
+            $back = unserialize($bytes);
+            $this->assertInstanceOf($model::class, $back);
+            $this->assertSame($model->toArray(), $back->toArray());
+        }
+        $back = unserialize(serialize(Thailand::subdistrict('100101')));
+        $this->assertSame('กรุงเทพมหานคร', $back->district->province->nameTh);
+    }
+
+    public function test_debug_info_is_the_model_not_the_repository(): void
+    {
+        $this->assertTrue(method_exists(Thailand::province('38'), '__debugInfo'), 'var_dump/print_r would walk the whole repository');
+        $this->assertSame(Thailand::province('38')->toArray(), Thailand::province('38')->__debugInfo());
+    }
 }

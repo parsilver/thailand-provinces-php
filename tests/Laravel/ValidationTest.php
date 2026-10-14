@@ -127,6 +127,11 @@ final class ValidationTest extends TestCase
 
         $errors = Validator::make($data, ['addresses.*.district' => 'thai_district:addresses.*.province'])->errors()->toArray();
         $this->assertSame(['addresses.1.district'], array_keys($errors));
+        // Review #3: :other names this row's parent, not the wildcard pattern.
+        $this->assertSame(['The addresses.1.district is not in the selected addresses.1.province.'], $errors['addresses.1.district']);
+
+        $errors = Validator::make($data, ['addresses.*.district' => [Rule::thaiDistrict()->inProvince('addresses.*.province')]])->errors()->toArray();
+        $this->assertSame(['The addresses.1.district is not in the selected addresses.1.province.'], $errors['addresses.1.district']);
     }
 
     public function test_rule_classes_work_without_the_macros(): void

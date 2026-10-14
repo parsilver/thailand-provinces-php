@@ -41,4 +41,23 @@ final class ServiceProviderTest extends TestCase
         $this->assertTrue(Validator::make(['p' => '99'], ['p' => 'thai_province'])->passes());
         $this->assertTrue(Validator::make(['p' => '10'], ['p' => 'thai_province'])->fails());
     }
+
+    /** Review #4: Thailand::swap() reaches the facade, the container binding and the rules. */
+    public function test_thailand_swap_reaches_the_container_and_the_facade(): void
+    {
+        ThailandAddress::province('10'); // resolve the facade first, so a stale cache would show
+        $fake = AddressRepository::fromArrays(['99' => ['name_th' => 'ทดสอบ', 'name_en' => 'Test', 'iso_code' => 'TH-99']]);
+        Thailand::swap($fake);
+
+        // Identity checks via assertTrue: a failing assertSame would export the whole repository.
+        $this->assertTrue($fake === $this->app->make(AddressRepository::class), 'container binding was not swapped');
+        $this->assertTrue($fake === ThailandAddress::getFacadeRoot(), 'facade still holds the old repository');
+        $this->assertSame('Test', ThailandAddress::province('99')?->nameEn);
+        $this->assertTrue(Validator::make(['p' => '99'], ['p' => 'thai_province'])->passes());
+
+        Thailand::swap(null);
+        $this->assertTrue($fake !== $this->app->make(AddressRepository::class), 'swap(null) left the fake bound');
+        $this->assertSame('Bangkok', ThailandAddress::province('10')?->nameEn);
+        $this->assertSame('Bangkok', Thailand::province('10')?->nameEn);
+    }
 }

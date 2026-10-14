@@ -45,4 +45,15 @@ final class District extends Model
     {
         return ['province'];
     }
+
+    protected static function lookup(AddressRepository $repository, string $code): static
+    {
+        return $repository->districtOrFail($code);
+    }
+
+    protected function restoreFrom(Model $source): void
+    {
+        assert($source instanceof self);
+        $this->provinceCode = $source->provinceCode;
+    }
 }

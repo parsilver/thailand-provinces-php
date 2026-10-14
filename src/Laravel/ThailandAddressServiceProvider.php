@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Farzai\ThailandAddress\Laravel;
 
 use Farzai\ThailandAddress\AddressRepository;
+use Farzai\ThailandAddress\Laravel\Facades\ThailandAddress;
 use Farzai\ThailandAddress\Laravel\Rules\AreaRule;
 use Farzai\ThailandAddress\Laravel\Rules\ThaiDistrict;
 use Farzai\ThailandAddress\Laravel\Rules\ThaiPostalCode;
@@ -34,9 +35,20 @@ final class ThailandAddressServiceProvider extends ServiceProvider
     public function boot(): void
     {
         // Thailand, the facade, the rules and the casts all use the container's
-        // repository, so one fake bound there reaches every one of them.
+        // repository, so one fake bound there reaches every one of them, and
+        // Thailand::swap() rebinds it there rather than beside it.
         $app = $this->app;
-        Thailand::resolveUsing(static fn (): AddressRepository => $app->make(AddressRepository::class));
+        Thailand::resolveUsing(
+            static fn (): AddressRepository => $app->make(AddressRepository::class),
+            static function (?AddressRepository $repository) use ($app): void {
+                if ($repository === null) {
+                    $app->forgetInstance(AddressRepository::class);
+                } else {
+                    $app->instance(AddressRepository::class, $repository);
+                }
+                ThailandAddress::clearResolvedInstance(AddressRepository::class);
+            },
+        );
 
         $lang = dirname(__DIR__, 2) . '/resources/lang';
         $this->loadTranslationsFrom($lang, 'thailand-address');
@@ -51,7 +63,9 @@ final class ThailandAddressServiceProvider extends ServiceProvider
             foreach (self::RULES as $name => $class) {
                 $factory->extend($name, fn (string $attribute, mixed $value, array $parameters, Validator $validator): bool => self::stringRule($class, $parameters)->failure($value, $validator->getData(), $attribute) === null);
                 $factory->replacer($name, function (string $message, string $attribute, string $rule, array $parameters, Validator $validator) use ($name, $class): string {
-                    $other = isset($parameters[0]) ? $validator->getDisplayableAttribute($parameters[0]) : '';
+                    // :other names this attribute's own parent, so a wildcard
+                    // parameter resolves per row (addresses.1.province).
+                    $other = self::stringRule($class, $parameters)->setValidator($validator)->otherName($attribute);
                     // Laravel falls back to the key itself when the app defines no
                     // message for the rule; then use the package's message.
                     if ($message !== "validation.{$name}") {
