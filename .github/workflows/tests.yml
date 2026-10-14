@@ -36,7 +36,10 @@ jobs:
       # Pest is not pinned: each cell gets the newest major its PHP and Laravel
       # allow (3, 4 or 5). Print what resolved, so the run records it.
       - name: Resolved versions
-        run: composer show pestphp/pest phpunit/phpunit laravel/framework | grep -E '^(name|versions)'
+        run: |
+          for p in pestphp/pest phpunit/phpunit laravel/framework; do
+            echo "$p $(composer show "$p" | grep -E '^versions' | sed 's/^versions : \* //')"
+          done
       - run: vendor/bin/pest
 
   dist:
