@@ -89,12 +89,12 @@ abstract class AreaRule implements ValidationRule, DataAwareRule, ValidatorAware
 
     /**
      * The parent field's value for this attribute. A "*" in the parent path takes
-     * the row key at the same position in the attribute, so
+     * the row key at the same level as the attribute's, so
      * "addresses.*.province" pairs with "addresses.2.district".
      *
-     * $unresolved is set when the parent path has a "*" and no such field exists
-     * in this row. The caller fails then, instead of passing (#20): only a parent
-     * that is present but empty defers to its own rule.
+     * $unresolved is set when the parent path has a "*" and this row's parent
+     * cannot be found unambiguously. The caller fails then instead of passing
+     * (#20): only a parent that is present but empty defers to its own rule.
      *
      * @param array<string, mixed> $data
      */
@@ -129,19 +129,12 @@ abstract class AreaRule implements ValidationRule, DataAwareRule, ValidatorAware
     /**
      * The real data keys of the parent field for this attribute, or null.
      *
-     * The attribute cannot simply be split on ".": a row key may contain a dot.
-     * Laravel escapes such a key in the data with a placeholder but gives an
-     * object rule the unescaped attribute ("addresses.a.b.district"). So the
-     * attribute is matched against the data one level at a time, taking as many
-     * of its segments as the next data key spells once its placeholders are
-     * restored. A "*" in the parent path then takes the real key at its level.
-     *
      * @param array<string, mixed> $data
      * @return list<array-key>|null
      */
     private function parentKeys(array $data, string $attribute): ?array
     {
-        $keys = self::dataKeys($data, $attribute);
+        $keys = $this->dataKeys($data, $attribute);
         if ($keys === null) {
             return null;
         }
@@ -161,14 +154,13 @@ abstract class AreaRule implements ValidationRule, DataAwareRule, ValidatorAware
     }
 
     /**
-     * The value at an attribute, escaped or not, read the same way as the
-     * parent: by the real data keys.
+     * The value at an attribute, read the same way as the parent.
      *
      * @param array<string, mixed> $data
      */
-    public static function valueAt(array $data, string $attribute): mixed
+    public function valueAt(array $data, string $attribute): mixed
     {
-        $keys = self::dataKeys($data, $attribute);
+        $keys = $this->dataKeys($data, $attribute);
         if ($keys === null) {
             return null;
         }
@@ -181,74 +173,103 @@ abstract class AreaRule implements ValidationRule, DataAwareRule, ValidatorAware
     }
 
     /**
-     * The real data keys an attribute path runs through, or null when it is not
-     * in the data. Matched one level at a time, each data key taking as many of
-     * the attribute's segments as it spells once its placeholders are restored.
+     * The real data keys an attribute runs through, or null when there is not
+     * exactly one way (PR #21 review).
+     *
+     * Laravel escapes a "." or "*" inside a data key with its own placeholder
+     * (Validator::$placeholderHash), then hands a string rule the escaped
+     * attribute but an object rule the unescaped one. So:
+     *
+     * - Without a validator, or for a string rule, the attribute is taken as
+     *   it is: no key in escaped data contains a dot, so its segments are the
+     *   keys, looked up exactly.
+     * - For an object rule, every way of grouping the attribute's segments into
+     *   keys is tried, each group escaped with the real placeholder and looked
+     *   up exactly. A grouping counts only when it ends on a field (not a row).
+     *   Exactly one may count; with none or several the parent is unresolved
+     *   and the rule fails closed. Nothing is matched by pattern, so a key that
+     *   merely looks escaped is never taken for an escaped one, and nothing
+     *   scans a level's keys, so the cost does not grow with the row count.
      *
      * @param array<string, mixed> $data
      * @return list<array-key>|null
      */
-    private static function dataKeys(array $data, string $attribute): ?array
+    private function dataKeys(array $data, string $attribute): ?array
     {
-        // An object rule gets the attribute unescaped, a string rule escaped.
-        $segments = explode('.', self::restored($attribute));
-        $keys = [];
-        $node = $data;
-        for ($i = 0, $n = count($segments); $i < $n;) {
-            if (!is_array($node)) {
-                return null;
+        $segments = explode('.', $attribute);
+        $hash = $this->placeholderHash();
+        $found = [];
+        $walk = function (mixed $node, int $from, array $keys) use (&$walk, &$found, $segments, $hash): void {
+            if (count($found) > 1) {
+                return;
             }
-            $match = null;
-            foreach (array_keys($node) as $key) {
-                $spelled = explode('.', self::restored((string) $key));
-                if (array_slice($segments, $i, count($spelled)) === $spelled
-                    && ($match === null || count($spelled) > $match[1])) {
-                    $match = [$key, count($spelled)];
+            if ($from === count($segments)) {
+                if (!is_array($node)) {
+                    $found[] = $keys;
+                }
+
+                return;
+            }
+            if (!is_array($node)) {
+                return;
+            }
+            $last = $hash === null ? $from + 1 : count($segments);
+            for ($to = $from + 1; $to <= $last; $to++) {
+                $key = implode('.', array_slice($segments, $from, $to - $from));
+                if ($hash !== null) {
+                    $key = str_replace(['.', '*'], ['__dot__' . $hash, '__asterisk__' . $hash], $key);
+                }
+                if (array_key_exists($key, $node)) {
+                    $walk($node[$key], $to, [...$keys, $key]);
                 }
             }
-            if ($match === null) {
-                return null;
-            }
-            $keys[] = $match[0];
-            $node = $node[$match[0]];
-            $i += $match[1];
-        }
+        };
+        $walk($data, 0, []);
 
-        return $keys;
+        return count($found) === 1 ? $found[0] : null;
     }
 
     /**
-     * A data key with Laravel's escaping placeholders turned back into "." and
-     * "*". The placeholder is "__dot__" plus Validator's Str::random() hash, 16
-     * alphanumerics; the length must be exact, or "a.b" escaped as
-     * "a__dot__<hash>b" would lose its "b". The dotted-key tests in
-     * ValidationTest pin this against each Laravel version CI runs.
+     * Laravel's escaping placeholder for this validation run, when the rule was
+     * handed the validator: an object rule, or the string rules' message
+     * replacer, both of which get the attribute unescaped. The string rules'
+     * extension gets no validator and the escaped attribute.
+     * Read exactly: matching any lookalike would let a literal key pass for an
+     * escaped one.
      */
-    private static function restored(string $key): string
+    private function placeholderHash(): ?string
     {
-        return (string) preg_replace(['/__dot__[A-Za-z0-9]{16}/', '/__asterisk__[A-Za-z0-9]{16}/'], ['.', '*'], $key);
+        if ($this->validator === null) {
+            return null;
+        }
+
+        return \Closure::bind(static fn (): ?string => Validator::$placeholderHash ?? null, null, Validator::class)();
     }
 
-    /** The parent path for display: a "*" takes the row key at its position. */
+    /** The parent path for display, with each "*" resolved to this row. */
     protected function resolveParentField(string $attribute): string
     {
         $field = (string) $this->parentField;
         if (!str_contains($field, '*')) {
             return $field;
         }
-        $keys = $this->parentKeys($this->data, $attribute);
-        if ($keys !== null) {
-            return implode('.', array_map(fn ($key) => self::restored((string) $key), $keys));
-        }
-        $attributeSegments = explode('.', $attribute);
+        $keys = $this->dataKeys($this->data, $attribute);
         $segments = explode('.', $field);
         foreach ($segments as $i => $segment) {
-            if ($segment === '*' && isset($attributeSegments[$i])) {
-                $segments[$i] = $attributeSegments[$i];
+            if ($segment === '*') {
+                $segments[$i] = isset($keys[$i]) ? $this->unescaped((string) $keys[$i]) : (explode('.', $attribute)[$i] ?? '*');
             }
         }
 
         return implode('.', $segments);
+    }
+
+    /** A data key for display, the real placeholder turned back into "." and "*". */
+    private function unescaped(string $key): string
+    {
+        $hash = $this->placeholderHash();
+
+        return $hash === null ? $key : str_replace(['__dot__' . $hash, '__asterisk__' . $hash], ['.', '*'], $key);
     }
 
     /** The parent field's display name for this attribute, its wildcards resolved. */

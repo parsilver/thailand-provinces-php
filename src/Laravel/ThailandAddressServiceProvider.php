@@ -66,8 +66,9 @@ final class ThailandAddressServiceProvider extends ServiceProvider
                     // :other names this attribute's own parent, so a wildcard
                     // parameter resolves per row (addresses.1.province).
                     // The attribute arrives unescaped here while the data is
-                    // escaped, so both are read through the rule's own key walk
-                    // (#20): getValue() would miss a row key with a dot in it.
+                    // escaped, so both are read through the rule's own key walk,
+                    // which has the validator and so its placeholder (#20):
+                    // getValue() would miss a row key with a dot in it.
                     $rule = self::stringRule($class, $parameters)->setValidator($validator)->setData($validator->getData());
                     $other = $rule->otherName($attribute);
                     // Laravel falls back to the key itself when the app defines no
@@ -75,7 +76,7 @@ final class ThailandAddressServiceProvider extends ServiceProvider
                     if ($message !== "validation.{$name}") {
                         return str_replace(':other', $other, $message);
                     }
-                    $key = $rule->failure(AreaRule::valueAt($validator->getData(), $attribute), $validator->getData(), $attribute) ?? 'province';
+                    $key = $rule->failure($rule->valueAt($validator->getData(), $attribute), $validator->getData(), $attribute) ?? 'province';
 
                     return (string) trans('thailand-address::validation.' . $key, [
                         'attribute' => $validator->getDisplayableAttribute($attribute),

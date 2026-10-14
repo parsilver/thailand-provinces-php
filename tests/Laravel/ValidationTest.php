@@ -209,3 +209,88 @@ test('a wildcard parent that cannot be found fails closed', function (string $st
     ]);
     $this->assertFalse($validator->fails());
 })->with('rule styles');
+
+/*
+ * PR #21 review: the first #20 fix matched data keys greedily and restored any
+ * "__dot__" + 16 characters, so one row could borrow another row's parent. Each
+ * case below has one bad row (a real code under the wrong parent); the error
+ * must land on that row and on no other.
+ */
+
+/**
+ * Per parent-aware rule: its field, its parent field, a value, a parent it
+ * belongs to and one it does not.
+ *
+ * @return array<string, array{string, string, string, string, string}>
+ */
+function parentAwareRules(): array
+{
+    return [
+        'district' => ['district', 'province', '5001', '50', '10'],
+        'subdistrict' => ['subdistrict', 'district', '500101', '5001', '1001'],
+        'postal code' => ['postal_code', 'subdistrict', '50200', '500101', '100101'],
+    ];
+}
+
+/** @return list<mixed>|string */
+function parentAwareRule(string $style, string $field, string $parentPath)
+{
+    return match ($field) {
+        'district' => $style === 'object' ? [Rule::thaiDistrict()->inProvince($parentPath)] : "thai_district:{$parentPath}",
+        'subdistrict' => $style === 'object' ? [Rule::thaiSubdistrict()->inDistrict($parentPath)] : "thai_subdistrict:{$parentPath}",
+        default => $style === 'object' ? [Rule::thaiPostalCode()->forSubdistrict($parentPath)] : "thai_postal_code:{$parentPath}",
+    };
+}
+
+const TWIN = 'x__dot__AAAAAAAAAAAAAAAAy';
+
+/**
+ * @return array<string, array{string, \Closure(string, string, string, string, string): array{array<string, mixed>, string}}>
+ */
+function borrowingCases(): array
+{
+    // $f field, $p parent field, $v value, $g good parent, $b bad parent
+    $row = fn (string $f, string $p, string $v, string $parent) => [$p => $parent, $f => $v];
+
+    return [
+        'control 0' => ['addresses', fn ($f, $p, $v, $g, $b) => [['0' => $row($f, $p, $v, $b)], "0.{$f}"]],
+        'a.b' => ['addresses', fn ($f, $p, $v, $g, $b) => [['a.b' => $row($f, $p, $v, $b)], "a.b.{$f}"]],
+        'x.y.z' => ['addresses', fn ($f, $p, $v, $g, $b) => [['x.y.z' => $row($f, $p, $v, $b)], "x.y.z.{$f}"]],
+        '0 and a.b mixed' => ['addresses', fn ($f, $p, $v, $g, $b) => [['0' => $row($f, $p, $v, $g), 'a.b' => $row($f, $p, $v, $b)], "a.b.{$f}"]],
+        'a*b' => ['addresses', fn ($f, $p, $v, $g, $b) => [['a*b' => $row($f, $p, $v, $b)], "a*b.{$f}"]],
+        'nested g.1 / a.b' => ['groups.*.items', fn ($f, $p, $v, $g, $b) => [['g.1' => ['items' => ['a.b' => $row($f, $p, $v, $b)]]], "g.1.items.a.b.{$f}"]],
+        'missing parent in a dotted row' => ['addresses', fn ($f, $p, $v, $g, $b) => [['a.b' => [$f => $v]], "a.b.{$f}"]],
+        'suffix key' => ['addresses', fn ($f, $p, $v, $g, $b) => [['a' => $row($f, $p, $v, $b), "a.{$f}" => $row($f, $p, $v, $g)], "a.{$f}"]],
+        'suffix key, reverse order' => ['addresses', fn ($f, $p, $v, $g, $b) => [["a.{$f}" => $row($f, $p, $v, $g), 'a' => $row($f, $p, $v, $b)], "a.{$f}"]],
+        'nested suffix key' => ['groups.*.items', fn ($f, $p, $v, $g, $b) => [['g' => ['items' => ['a' => $row($f, $p, $v, $b), "a.{$f}" => $row($f, $p, $v, $g)]]], "g.items.a.{$f}"]],
+        'literal placeholder twin first' => ['addresses', fn ($f, $p, $v, $g, $b) => [[TWIN => $row($f, $p, $v, $g), 'x.y' => $row($f, $p, $v, $b)], "x.y.{$f}"]],
+        'literal placeholder twin second' => ['addresses', fn ($f, $p, $v, $g, $b) => [['x.y' => $row($f, $p, $v, $g), TWIN => $row($f, $p, $v, $b)], TWIN . ".{$f}"]],
+    ];
+}
+
+dataset('parent aware rules', array_map(fn (array $r) => [$r], parentAwareRules()));
+dataset('borrowing cases', array_map(fn (array $c) => [$c[0], $c[1]], borrowingCases()));
+
+test('no row borrows another row\'s parent', function (string $style, array $rule, string $prefix, \Closure $case) {
+    [$f, $p, $v, $g, $b] = $rule;
+    [$rows, $badSuffix] = $case($f, $p, $v, $g, $b);
+    $root = explode('.', $prefix)[0];
+    $data = $root === 'groups' ? ['groups' => $rows] : ['addresses' => $rows];
+    $validator = Validator::make($data, ["{$prefix}.*.{$f}" => parentAwareRule($style, $f, "{$prefix}.*.{$p}")]);
+
+    $this->assertSame(["{$root}.{$badSuffix}"], array_keys($validator->errors()->toArray()));
+})->with('rule styles')->with('parent aware rules')->with('borrowing cases');
+
+test('wildcard parent checks stay linear in the row count', function () {
+    $rows = array_fill(0, 5000, VALID);
+    $rules = [
+        'addresses.*.district' => [Rule::thaiDistrict()->inProvince('addresses.*.province')],
+        'addresses.*.subdistrict' => [Rule::thaiSubdistrict()->inDistrict('addresses.*.district')],
+        'addresses.*.postal_code' => [Rule::thaiPostalCode()->forSubdistrict('addresses.*.subdistrict')],
+    ];
+    $started = microtime(true);
+    $this->assertTrue(Validator::make(['addresses' => $rows], $rules)->passes());
+    // Quadratic key scanning took ~2.3 s at 2,000 rows (PR #21 review), so
+    // ~14 s at 5,000; a linear walk is well under this bound.
+    $this->assertLessThan(8.0, microtime(true) - $started);
+});

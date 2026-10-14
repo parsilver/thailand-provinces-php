@@ -289,7 +289,8 @@ The generator is in the repository but not in the Composer package.
 php tools/generate.php              # use tools/cache/, fetch what is missing
 php tools/generate.php --refresh    # fetch every source again
 php tools/generate.php --offline    # rebuild from the cache only
-php tools/generate.php --verify     # check each source's sha256 against data/sources.json, write nothing
+php tools/generate.php --verify     # check the cached sources' sha256 against data/sources.json, write nothing
+php tools/generate.php --verify --refresh  # the same, against what the sources serve today
 ```
 
 It needs `ext-zip`, `ext-simplexml` and `ext-mbstring`. A run:
