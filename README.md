@@ -369,7 +369,8 @@ composer test      # vendor/bin/pest
   `tests/Pest.php`.
 - **Pest versions.** `require-dev` allows Pest 3, 4 and 5, so Composer
   installs the newest one your PHP can run: Pest 5 needs PHP 8.4, Pest 4 needs
-  PHP 8.3, and Pest 3 runs on 8.2. The tests use only what the three share
+  PHP 8.3, and Pest 3 runs on 8.2. Pest 5 also needs PHPUnit 13, which only
+  Testbench 11 (Laravel 13) allows, so a Laravel 12 setup gets Pest 4 at most. The tests use only what the three share
   (`test()`, `uses()`, `beforeEach()`, `afterEach()`, `dataset()`,
   `->with()`), so they run unchanged on each.
 - **CI.** CI runs PHP 8.2 to 8.5 against Laravel 12 and 13, prints the Pest
