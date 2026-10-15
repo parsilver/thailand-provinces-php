@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # update-data.yml dispatches this on its data/<snapshot> branch: a pull
+  # request opened with GITHUB_TOKEN starts no workflow by itself.
+  workflow_dispatch:
 
 permissions:
   contents: read

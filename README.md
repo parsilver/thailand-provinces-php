@@ -292,7 +292,8 @@ snapshots. This library fetches nothing itself.
 A weekly workflow (`.github/workflows/update-data.yml`) checks for a newer snapshot,
 imports it, runs the tests and opens a pull request; nothing is merged
 automatically. Its import job has a read-only token; a second job, which runs no
-Composer and no PHP, commits only the four data files and opens the pull request.
+Composer and no PHP, commits only the four data files and opens the pull request;
+a third, which can only start workflows, runs the test matrix on the pull request.
 When the test suite fails on the new data (it pins today's counts), the pull
 request opens as a draft labelled `needs-tests` with the failing output. By hand
 (the tool is in the repository, not in the Composer package):

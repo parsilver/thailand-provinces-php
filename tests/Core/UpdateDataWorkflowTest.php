@@ -6,7 +6,8 @@ declare(strict_types=1);
  * The token scoping of update-data.yml (security review on #22): the job that
  * installs dependencies and runs the suite has a read-only token that is never
  * written to disk; the job that can push runs no Composer and no PHP, and
- * commits only the data files.
+ * commits only the data files; the job that starts tests.yml on the pull
+ * request's branch can do nothing else.
  */
 function updateDataJobs(): array
 {
@@ -17,9 +18,9 @@ function updateDataJobs(): array
     return ['yaml' => $yaml, 'jobs' => array_column(array_map(fn (array $x) => [$x[1], $x[2]], $m), 1, 0)];
 }
 
-test('two jobs: a read-only import and a minimal pull request job', function () {
+test('three jobs: a read-only import, a minimal pull request job, and one that starts the tests', function () {
     ['yaml' => $yaml, 'jobs' => $jobs] = updateDataJobs();
-    $this->assertSame(['import', 'open-pr'], array_keys($jobs));
+    $this->assertSame(['import', 'open-pr', 'run-tests'], array_keys($jobs));
     preg_match('/^permissions:\n((?:  .*\n)+)/m', $yaml, $m);
     $this->assertSame("  contents: read\n", $m[1], 'the workflow default is read-only');
 });
@@ -67,4 +68,32 @@ test('the write job takes the data only from the data artifact and checks its gr
     $this->assertStringContainsString('name: import-data-${{ github.run_id }}', $pr);
     $this->assertStringContainsString('tools/check-data-grammar.sh', $pr);
     $this->assertLessThan(strpos($pr, 'git add --'), strpos($pr, 'tools/check-data-grammar.sh'));
+});
+
+/*
+ * A pull request opened with GITHUB_TOKEN starts no other workflow, so the
+ * PHP x Laravel matrix would never run on a data change. A workflow_dispatch
+ * is the documented exception: run-tests dispatches tests.yml on the data
+ * branch, whose head is the pull request's head, so the matrix shows on it.
+ */
+test('the matrix runs on the data pull request: tests.yml is dispatched on its branch', function () {
+    $run = updateDataJobs()['jobs']['run-tests'];
+    $this->assertStringContainsString('needs: [import, open-pr]', $run);
+    $this->assertStringContainsString('gh workflow run tests.yml --ref "data/$TARGET"', $run);
+
+    $tests = (string) file_get_contents(dirname(__DIR__, 2) . '/.github/workflows/tests.yml');
+    $this->assertMatchesRegularExpression('/^on:\n(?:  .*\n|    .*\n)*  workflow_dispatch:/m', $tests);
+    preg_match('/^permissions:\n((?:  .*\n)+)/m', $tests, $m);
+    $this->assertSame("  contents: read\n", $m[1], 'tests.yml stays read-only');
+});
+
+test('only the dispatching job can start workflows, and it can do nothing else', function () {
+    ['jobs' => $jobs] = updateDataJobs();
+    preg_match('/permissions:\n((?:      .*\n)+)/', $jobs['run-tests'], $m);
+    $this->assertSame("      actions: write\n", $m[1], 'actions: write and nothing more');
+    foreach (['checkout', 'composer', 'setup-php', 'vendor/bin', 'git push'] as $step) {
+        $this->assertStringNotContainsString($step, $jobs['run-tests'], $step);
+    }
+    $this->assertStringNotContainsString('actions: write', $jobs['import']);
+    $this->assertStringNotContainsString('actions: write', $jobs['open-pr']);
 });

@@ -2,7 +2,7 @@
 # one in data/sources.json, import it, run the test suite, and open a pull
 # request. Never merged automatically.
 #
-# Two jobs, so third-party code never runs next to a write token (security
+# Three jobs, so third-party code never runs next to a write token (security
 # review on #22):
 # - import (contents: read): checks for a newer snapshot, imports it
 #   (tools/generate.php verifies it first) and hands the data files on
@@ -14,13 +14,14 @@
 #   artifact, refuses any file outside the generated grammar
 #   (tools/check-data-grammar.sh), commits them on data/<snapshot> and opens
 #   the pull request.
+# - run-tests (actions: write only): starts tests.yml on data/<snapshot>.
+#   A pull request opened with GITHUB_TOKEN starts no other workflow, but a
+#   workflow_dispatch does; the branch head is the pull request's head, so
+#   the PHP x Laravel matrix shows on the pull request.
 #
 # The suite pins today's counts, so a real data change fails it. That is the
 # point: the pull request still opens, as a draft labelled needs-tests with the
 # failing output, and the reviewer updates the pins in it.
-#
-# A pull request opened with GITHUB_TOKEN does not start other workflows, so
-# tests.yml will not run on it by itself; a maintainer can re-run CI on it.
 name: update-data
 
 on:
@@ -231,3 +232,19 @@ jobs:
           gh pr create --base main --head "data/$TARGET" \
             --title "chore(data): update to snapshot $TARGET" \
             --body-file "$body" "${draft[@]}"
+
+  run-tests:
+    needs: [import, open-pr]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    env:
+      TARGET: ${{ needs.import.outputs.target }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Run tests.yml on the pull request's branch
+        run: |
+          [[ "$TARGET" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}(\.[1-9][0-9]*)?$ ]] || { echo "Not a snapshot id."; exit 1; }
+          gh workflow run tests.yml --ref "data/$TARGET"
