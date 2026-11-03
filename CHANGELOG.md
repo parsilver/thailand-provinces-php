@@ -1,9 +1,14 @@
 # Changelog
 
-## Unreleased
+## 2.0.3 (2026-11-03)
 
 ### Changed
 
+- The data rows are unchanged from 2.0.2. `data/sources.json` now pins snapshot
+  `2026-11-01`, and its shape changed: top-level `snapshot`, `schema_version`,
+  `manifest_sha256`, `url`, `generated_at`, `counts` and `sources`. The
+  `postal_codes` key is gone. The library's own code does not read this file;
+  anything else that reads it needs updating.
 - The data now comes from published snapshots of the Thai address dataset
   (`https://data.farzai.com/thailand-address/v1/`): `tools/generate.php`
   imports and verifies one, and a weekly workflow opens a pull request when a
